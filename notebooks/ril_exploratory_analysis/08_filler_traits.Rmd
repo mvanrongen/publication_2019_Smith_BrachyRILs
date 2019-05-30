@@ -1,0 +1,95 @@
+---
+title: "Brachy RIL Bd21-3 analysis"
+author: "Martin van Rongen"
+date: "2019-05-29"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 4
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+## Loading libraries and settings
+
+Load the relevant libraries and change some default plotting settings
+
+```{r, message = FALSE, warning = FALSE}
+library(tidyverse)
+theme_set(theme_bw())
+scale_colour_discrete <- function(...) scale_color_brewer(palette = "Dark2")
+scale_fill_discrete <- function(...) scale_fill_brewer(palette = "Dark2")
+```
+
+```{r}
+ril_phenotypes <- read_csv("../../data/processed/ril_phenotypes/ril_phenotypic_data.csv")
+```
+
+
+> Plot branch number for Bd21-3 in grid, based on position and use data label + colour
+
+```{r}
+ril_phenotypes %>% 
+  mutate(col_pos = str_remove(position_grid_location, 
+                              "[A-Z]"),
+         row_pos = str_remove(position_grid_location, 
+                              "[0-9]+")) %>% 
+  filter(ril_id == "Bd21-3") %>% 
+ggplot(., aes(x = ril_id, y = z68_shoots, colour = nitrate_level)) +
+    labs(title = "Branch number Bd21-3 at z68 stage with edges", 
+       subtitle = "Per batch by nitrate level", 
+       x = "Genotype (by ril_id)", 
+       y = "Branches") +
+  geom_jitter() +
+  facet_wrap(. ~ batch, ncol = 4) +
+  
+  theme(
+    axis.text.x = element_blank()
+  )
+```
+
+```{r}
+ril_phenotypes %>% 
+  mutate(col_pos = str_remove(position_grid_location, 
+                              "[A-Z]"),
+         row_pos = str_remove(position_grid_location, 
+                              "[0-9]+")) %>% 
+  filter(ril_id == "Bd21-3",
+         !col_pos %in% c(1, 10) | !row_pos %in% c("A", "T")) %>% 
+ggplot(., aes(x = ril_id, y = z68_shoots, colour = nitrate_level)) +
+    labs(title = "Branch number Bd21-3 at z68 stage excluding edges", 
+       subtitle = "Per batch by nitrate level", 
+       x = "Genotype (by ril_id)", 
+       y = "Branches") +
+  geom_jitter() +
+  facet_wrap(. ~ batch, ncol = 4) +
+  
+  theme(
+    axis.text.x = element_blank()
+  )
+```
+
+
+```{r}
+ril_phenotypes %>% 
+  mutate(col_pos = str_remove(position_grid_location, 
+                              "[A-Z]"),
+         row_pos = str_remove(position_grid_location, 
+                              "[0-9]+")) %>% 
+  filter(ril_id == "Bd21-3",
+         col_pos %in% c(1, 10) | row_pos %in% c("A", "T")) %>% 
+ggplot(., aes(x = ril_id, y = z68_shoots, colour = nitrate_level)) +
+    labs(title = "Branch number Bd21-3 at z68 stage only edges", 
+       subtitle = "Per batch by nitrate level", 
+       x = "Genotype (by ril_id)", 
+       y = "Branches") +
+  geom_jitter() +
+  facet_wrap(. ~ batch, ncol = 4) +
+  
+  theme(
+    axis.text.x = element_blank()
+  )
+```

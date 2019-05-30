@@ -1,0 +1,42 @@
+---
+title: "Brachy RIL seasonal effects"
+author: "Martin van Rongen"
+date: "2019-05-01"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 4
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+## Loading libraries and settings
+
+Load the relevant libraries and change some default plotting settings
+
+```{r, message = FALSE, warning = FALSE}
+library(tidyverse)
+theme_set(theme_bw())
+scale_colour_discrete <- function(...) scale_color_brewer(palette = "Dark2")
+scale_fill_discrete <- function(...) scale_fill_brewer(palette = "Dark2")
+```
+
+## Read in clean data
+
+To ensure that the data is read in correctly, the `.csv` file that was created previously is read in using the `read_csv` command. This way a tibble is created where the column specification is as basic as possible. This helps to avoid unnecessary factor conversions.
+
+**Note:** Exclude Bd21-3 filler plants?
+
+```{r}
+ril_phenotypes <- read_csv("../../data/processed/ril_phenotypes/ril_phenotypic_data.csv")
+```
+
+## Checking for seasonal effects
+
+> Are other traits affected by season? Look at flowering etc.
+
+> Conviron logs for chamber?
+

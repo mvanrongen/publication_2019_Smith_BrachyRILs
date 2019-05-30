@@ -1,0 +1,114 @@
+---
+title: "Brachy RIL data distribution"
+author: "Martin van Rongen"
+date: "2019-05-23"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 4
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+## Loading libraries and settings
+
+Load the relevant libraries and change some default plotting settings
+
+```{r, message = FALSE, warning = FALSE}
+library(tidyverse)
+theme_set(theme_bw())
+scale_colour_discrete <- function(...) scale_color_brewer(palette = "Dark2")
+scale_fill_discrete <- function(...) scale_fill_brewer(palette = "Dark2")
+```
+
+## Read in clean data
+
+To ensure that the data is read in correctly, the `.csv` file that was created previously is read in using the `read_csv` command. This way a tibble is created where the column specification is as basic as possible. This helps to avoid unnecessary factor conversions.
+
+```{r}
+ril_phenotypes <- read_csv("../../data/processed/ril_phenotypes/ril_phenotypic_data.csv")
+```
+
+
+## Traits
+
+There are the following traits in the data set:
+
+```{r}
+names(ril_phenotypes)
+```
+
+## Histograms of data
+
+### Branching
+
+```{r}
+ril_phenotypes %>%
+  
+  ggplot(., aes(x = z68_shoots, fill = nitrate_level)) +
+      labs(title = "Branch number distribution", 
+       subtitle = "Per batch by nitrate level", 
+       x = "Branches", 
+       y = "Count") +
+  geom_histogram(binwidth = 1, alpha = 0.7, position = "identity") +
+  facet_wrap(. ~ batch)
+```
+
+### Flowering time
+
+```{r}
+ril_phenotypes %>%
+  
+  ggplot(., aes(x = flowering_time, fill = nitrate_level)) +
+      labs(title = "Flowering time distribution", 
+       subtitle = "Per batch by nitrate level", 
+       x = "Flowering time (days)", 
+       y = "Count") +
+  geom_histogram(binwidth = 1, alpha = 0.7, position = "identity") +
+  facet_wrap(. ~ batch)
+```
+
+### Lifespan
+
+```{r}
+ril_phenotypes %>%
+  
+  ggplot(., aes(x = lifespan, fill = nitrate_level)) +
+      labs(title = "Lifespan distribution", 
+       subtitle = "Per batch by nitrate level", 
+       x = "Life span (days)", 
+       y = "Count") +
+  geom_histogram(binwidth = 1, alpha = 0.7, position = "identity") +
+  facet_wrap(. ~ batch)
+```
+
+### Plant height
+
+```{r}
+ril_phenotypes %>%
+  
+  ggplot(., aes(x = senescence_height, fill = nitrate_level)) +
+      labs(title = "Plant height distribution", 
+       subtitle = "Per batch by nitrate level", 
+       x = "Plant height (cm)", 
+       y = "Count") +
+  geom_histogram(alpha = 0.7, position = "identity") +
+  facet_wrap(. ~ batch)
+```
+
+### Seed weight
+
+```{r}
+ril_phenotypes %>%
+  
+  ggplot(., aes(x = seed_weight_g, fill = nitrate_level)) +
+      labs(title = "Seed weight distribution", 
+       subtitle = "Per batch by nitrate level", 
+       x = "Seed weight (g)", 
+       y = "Count") +
+  geom_histogram(alpha = 0.7, position = "identity") +
+  facet_wrap(. ~ batch)
+```

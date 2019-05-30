@@ -1,0 +1,111 @@
+---
+title: "Brachy exploratory plots"
+author: "Martin van Rongen"
+date: "2019-05-01"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 4
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+## Loading libraries and settings
+
+Load the relevant libraries and change some default plotting settings
+
+```{r, message = FALSE, warning = FALSE}
+library(tidyverse)
+theme_set(theme_bw())
+scale_colour_discrete <- function(...) scale_color_brewer(palette = "Dark2")
+scale_fill_discrete <- function(...) scale_fill_brewer(palette = "Dark2")
+```
+
+## Read in clean data
+
+To ensure that the data is read in correctly, the `.csv` file that was created previously is read in using the `read_csv` command. This way a tibble is created where the column specification is as basic as possible. This helps to avoid unnecessary factor conversions.
+
+**Note:** Exclude Bd21-3 filler plants?
+
+```{r}
+ril_phenotypes <- read_csv("../../data/processed/ril_phenotypes/ril_phenotypic_data.csv")
+```
+
+## Seed weight vs branches
+
+### Per batch by nitrate level
+
+Checking if the total seed weight is correlated to the number of branches.
+
+```{r}
+ril_phenotypes %>%
+  filter(!is.na(z68_shoots)) %>% 
+
+ggplot(., aes(x = seed_weight_g, y = z68_shoots, colour = nitrate_level)) +
+    labs(title = "Branch number vs seed weight",
+         subtitle = "Per batch by nitrate level",
+         x = "Seed weight (g)",
+         y = "Branches") +
+  geom_jitter() +
+  geom_smooth(method = "lm", colour = "black", size = .5) +
+  facet_grid(batch ~ nitrate_level) +
+  
+  theme(legend.position = "none")
+```
+
+**Comments**
+
+There appears to be no correlation between seed weight per plant and the number of branches.
+
+### Mean seed weight across batches
+
+```{r}
+ril_phenotypes %>%
+  filter(!is.na(z68_shoots), !is.na(seed_weight_g)) %>% 
+  group_by(ril_id, nitrate_level) %>% 
+  summarise(avg_z68_shoots = mean(z68_shoots),
+            avg_seed_weight_g = mean(seed_weight_g)) %>% 
+  
+  ggplot(., aes(x = avg_seed_weight_g, y = avg_z68_shoots, colour = nitrate_level)) +
+  labs(title = "Branch number vs seed weight", 
+       subtitle = "Mean across batches for each nitrate level", 
+       x = "Mean seed weight (g)", 
+       y = "Branches (mean)") +
+  expand_limits(y = 0) +
+  geom_jitter() +
+  geom_smooth(method = "lm", colour = "black", size = .5) +
+    geom_point(data = . %>%  filter(ril_id == "Bd3-1"), colour = "magenta", size = 3, alpha = 0.7) +
+  geom_point(data = . %>%  filter(ril_id == "Bd21"), colour = "royalblue3", size = 3, alpha = 0.7) +
+  geom_point(data = . %>%  filter(ril_id == "Bd21-3"), colour = "orange", size = 3, alpha = 0.7) +
+  facet_grid(. ~ nitrate_level) +
+  
+  theme(legend.position = "none")
+```
+
+### Mean seed weight vs senescence
+
+```{r}
+ril_phenotypes %>%
+  filter(!is.na(lifespan), !is.na(seed_weight_g)) %>% 
+  group_by(ril_id, nitrate_level) %>% 
+  summarise(avg_lifespan = mean(lifespan),
+            avg_seed_weight_g = mean(seed_weight_g)) %>% 
+  
+  ggplot(., aes(x = avg_seed_weight_g, y = avg_lifespan, colour = nitrate_level)) +
+  labs(title = "Seed weight vs lifespan", 
+       subtitle = "Mean across batches for each nitrate level", 
+       x = "Mean seed weight (g)", 
+       y = "Lifespan (days)") +
+  expand_limits(y = 0) +
+  geom_jitter() +
+  geom_smooth(method = "lm", colour = "black", size = .5) +
+    geom_point(data = . %>%  filter(ril_id == "Bd3-1"), colour = "magenta", size = 3, alpha = 0.7) +
+  geom_point(data = . %>%  filter(ril_id == "Bd21"), colour = "royalblue3", size = 3, alpha = 0.7) +
+  geom_point(data = . %>%  filter(ril_id == "Bd21-3"), colour = "orange", size = 3, alpha = 0.7) +
+  facet_grid(. ~ nitrate_level) +
+  
+  theme(legend.position = "none")
+```

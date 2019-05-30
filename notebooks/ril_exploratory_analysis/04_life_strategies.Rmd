@@ -1,0 +1,88 @@
+---
+title: "Brachy RIL life traits"
+author: "Martin van Rongen"
+date: "2019-05-01"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 4
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+## Loading libraries and settings
+
+Load the relevant libraries and change some default plotting settings
+
+```{r, message = FALSE, warning = FALSE}
+library(tidyverse)
+theme_set(theme_bw())
+scale_colour_discrete <- function(...) scale_color_brewer(palette = "Dark2")
+scale_fill_discrete <- function(...) scale_fill_brewer(palette = "Dark2")
+```
+
+## Read in clean data
+
+To ensure that the data is read in correctly, the `.csv` file that was created previously is read in using the `read_csv` command. This way a tibble is created where the column specification is as basic as possible. This helps to avoid unnecessary factor conversions.
+
+**Note:** Exclude Bd21-3 filler plants?
+
+```{r}
+ril_phenotypes <- read_csv("../../data/processed/ril_phenotypes/ril_phenotypic_data.csv")
+```
+
+## Time-related
+
+### Life span
+
+See how the RIL life span is distributed between treatments.
+
+**Note** The lifespan is capped at < 100, because there are some strange outliers in batch 6 that obscure the rest of the data.
+
+```{r}
+ril_phenotypes %>% 
+  filter(lifespan < 100) %>% 
+  
+  ggplot(., aes(x = ril_id, y = lifespan, colour = nitrate_level)) +
+  labs(title = "RIL life span", 
+       subtitle = "Per genotype for each nitrate level", 
+       x = "Genotype", 
+       y = "Lifespan (days)") +
+  geom_jitter() +
+  facet_grid(. ~ nitrate_level) +
+  
+  theme(legend.position = "none",
+        axis.text.x = element_blank())
+```
+
+**Comments**
+
+The plants grown on LN appear to have a wider life span range than the ones grown on HN. Also, the life span of HN-grown plants appears to be higher.
+
+Need to check if this trend is clear in all batches.
+
+### Life span per batch
+
+Checking the life span per batch
+
+```{r}
+ril_phenotypes %>% 
+  filter(!is.na(lifespan)) %>% 
+  
+  ggplot(., aes(x = nitrate_level, y = lifespan, fill = nitrate_level)) +
+  labs(title = "RIL life span", 
+       subtitle = "Per batch for each nitrate level", 
+       x = "Nitrate level", 
+       y = "Lifespan (days)") +
+  geom_boxplot() +
+  facet_grid(. ~ batch) +
+  
+  theme(legend.position = "none")
+```
+
+**Comments**
+
+It does look like the overall life span of plants grown on LN is shorter than that of plants grown on HN. This trend is visible in most batches, but not so in batch 1.

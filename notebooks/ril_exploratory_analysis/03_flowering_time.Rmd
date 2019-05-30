@@ -1,0 +1,280 @@
+---
+title: "Brachy RIL flowering"
+author: "Martin van Rongen"
+date: "2019-05-01"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 4
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+## Loading libraries and settings
+
+Load the relevant libraries and change some default plotting settings
+
+```{r, message = FALSE, warning = FALSE}
+library(tidyverse)
+theme_set(theme_bw())
+scale_colour_discrete <- function(...) scale_color_brewer(palette = "Dark2")
+scale_fill_discrete <- function(...) scale_fill_brewer(palette = "Dark2")
+```
+
+## Read in clean data
+
+To ensure that the data is read in correctly, the `.csv` file that was created previously is read in using the `read_csv` command. This way a tibble is created where the column specification is as basic as possible. This helps to avoid unnecessary factor conversions.
+
+**Note:** Exclude Bd21-3 filler plants?
+
+```{r}
+ril_phenotypes <- read_csv("../../data/processed/ril_phenotypes/ril_phenotypic_data.csv")
+```
+
+## Flowering time
+
+### Flowering time & branching
+
+Scatter plot of number of shoots at `z68_shoots` vs 'flowering_time' per `batch`. Using `geom_jitter` because otherwise many points overlap.
+
+```{r}
+ril_phenotypes %>%
+
+ggplot(., aes(x = flowering_time, y = z68_shoots, colour = nitrate_level)) +
+    labs(title = "Flowering time vs branching", 
+       subtitle = "By batch and nitrate level", 
+       x = "Flowering time (days)", 
+       y = "Branches") +
+  geom_jitter() +
+  geom_point(data = . %>%  filter(ril_id == "Bd3-1"), colour = "magenta", size = 3, alpha = 0.7) +
+  geom_point(data = . %>%  filter(ril_id == "Bd21"), colour = "royalblue3", size = 3, alpha = 0.7) +
+  geom_point(data = . %>%  filter(ril_id == "Bd21-3"), colour = "orange", alpha = 0.3) +
+  facet_wrap(. ~ batch, ncol = 4)
+```
+
+**Comments**
+
+There seems to be a positive correlation between branching and flowering time on HN. Explore this further by looking at the average branching and flowering time.
+
+### Flowering time and branching across all batches
+
+Using `geom_jitter` because otherwise many points overlap.
+
+```{r}
+ril_phenotypes %>%
+
+ggplot(., aes(x = flowering_time, y = z68_shoots, colour = nitrate_level)) +
+    labs(title = "Flowering time vs branching", 
+       subtitle = "By nitrate level", 
+       x = "Flowering time (days)", 
+       y = "Branches") +
+  geom_jitter() +
+  geom_smooth(method = "lm", colour = "black", size = .5) +
+  geom_point(data = . %>%  filter(ril_id == "Bd3-1"), colour = "magenta", size = 3, alpha = 0.7) +
+  geom_point(data = . %>%  filter(ril_id == "Bd21"), colour = "royalblue3", size = 3, alpha = 0.7) +
+  geom_point(data = . %>%  filter(ril_id == "Bd21-3"), colour = "orange", alpha = 0.5) +
+  facet_wrap(. ~ nitrate_level) +
+  
+  theme(
+    legend.position = "none"
+  )
+```
+
+### Average flowering time and branching across all batches
+
+```{r}
+ril_phenotypes %>%
+  group_by(ril_id, nitrate_level) %>% 
+  summarise(avg_z68_shoots = mean(z68_shoots),
+            avg_flowering_time = mean(flowering_time)) %>% 
+
+ggplot(., aes(x = avg_flowering_time, y = avg_z68_shoots, colour = nitrate_level)) +
+    labs(title = "Average flowering time vs average branching", 
+       subtitle = "By nitrate level for each genotype", 
+       x = "Flowering time (days)", 
+       y = "Branches") +
+  geom_point() +
+  geom_smooth(method = "lm", colour = "black", size = .5) +
+  geom_point(data = . %>%  filter(ril_id == "Bd3-1"), colour = "magenta", size = 3, alpha = 0.7) +
+  geom_point(data = . %>%  filter(ril_id == "Bd21"), colour = "royalblue3", size = 3, alpha = 0.7) +
+  geom_point(data = . %>%  filter(ril_id == "Bd21-3"), colour = "orange", size = 3, alpha = 0.7) +
+  facet_wrap(. ~ nitrate_level) +
+  
+  theme(
+    legend.position = "none"
+  )
+```
+
+### Average flowering time and SPAD across all batches
+
+```{r}
+ril_phenotypes %>%
+  group_by(ril_id, nitrate_level) %>% 
+  filter(!is.na(z68_greenness)) %>% 
+  summarise(avg_greenness = mean(z68_greenness),
+            avg_flowering_time = mean(flowering_time)) %>% 
+
+ggplot(., aes(x = avg_flowering_time, y = avg_greenness, colour = nitrate_level)) +
+    labs(title = "Average flowering time vs average SPAD", 
+       subtitle = "By nitrate level for each genotype", 
+       x = "SPAD score", 
+       y = "Flowering time (days)") +
+  geom_point() +
+  geom_smooth(method = "lm", colour = "black", size = .5) +
+  geom_point(data = . %>%  filter(ril_id == "Bd3-1"), colour = "magenta", size = 3, alpha = 0.7) +
+  geom_point(data = . %>%  filter(ril_id == "Bd21"), colour = "royalblue3", size = 3, alpha = 0.7) +
+  geom_point(data = . %>%  filter(ril_id == "Bd21-3"), colour = "orange", size = 3, alpha = 0.7) +
+  facet_wrap(. ~ nitrate_level) +
+  
+  theme(
+    legend.position = "none"
+  )
+```
+
+### Flowering time plasticity
+
+```{r}
+ril_phenotypes %>%
+  group_by(ril_id, batch, nitrate_level) %>% 
+  summarise(avg_flowering_time = mean(flowering_time)) %>% 
+  spread(nitrate_level, avg_flowering_time) %>% 
+  mutate(flowering_time_plasticity = HN - LN) %>% 
+  filter(!is.na(flowering_time_plasticity)) %>% 
+  
+  ggplot(., aes(x = ril_id, y = flowering_time_plasticity)) +
+  labs(title = "Flowering time plasticity",
+       subtitle = "Average for each genotype per batch",
+       x = "Genotype (ril_id)", 
+       y = "Flowering time plasticity (mean)") +
+  geom_point() +
+  geom_point(data = . %>%  filter(ril_id == "Bd3-1"), colour = "magenta", size = 3, alpha = 0.7) +
+  geom_point(data = . %>%  filter(ril_id == "Bd21"), colour = "royalblue3", size = 3, alpha = 0.7) +
+  geom_point(data = . %>%  filter(ril_id == "Bd21-3"), colour = "orange", size = 3, alpha = 0.7) +
+  
+  theme(axis.text.x = element_blank(),
+        legend.position = "none")
+```
+
+### Average flowering time plasticity
+
+```{r}
+ril_phenotypes %>%
+  group_by(batch, nitrate_level, ril_id) %>% 
+  summarise(avg_flowering_time = mean(flowering_time)) %>% 
+  spread(nitrate_level, avg_flowering_time) %>% 
+  mutate(flowering_time_plasticity = HN - LN) %>% 
+  filter(!is.na(flowering_time_plasticity)) %>% 
+  ungroup() %>% 
+  group_by(ril_id) %>%
+  summarise(n = n(),
+            avg_flowering_time_plasticity = mean(flowering_time_plasticity),
+            sd = sd(flowering_time_plasticity),
+            se = sd / sqrt(n),
+            ci = 2 * se) %>% 
+  
+  ggplot(., aes(x = fct_reorder(ril_id, avg_flowering_time_plasticity), y = avg_flowering_time_plasticity )) +
+  labs(title = "Flowering time plasticity (low to high)",
+       subtitle = "Mean per genotype (with 95% CI)",
+       x = "Genotype (reordered)", 
+       y = "Flowering time plasticity (mean)") +
+  geom_point() +
+  geom_errorbar(aes(ymin = avg_flowering_time_plasticity - ci, ymax = avg_flowering_time_plasticity + ci), width = 0.1) +
+  geom_point(data = . %>%  filter(ril_id == "Bd3-1"), colour = "magenta", size = 3, alpha = 0.7) +
+  geom_point(data = . %>%  filter(ril_id == "Bd21"), colour = "royalblue3", size = 3, alpha = 0.7) +
+  geom_point(data = . %>%  filter(ril_id == "Bd21-3"), colour = "orange", size = 3, alpha = 0.7) +
+  
+  theme(axis.text.x = element_blank(),
+        legend.position = "none")
+```
+
+### Per batch by nitrate level
+
+Plotting the number of branches against the time it took to reach the Z68 stage.
+Added a regression line.
+
+```{r}
+ril_phenotypes %>%
+  filter(!is.na(z68_shoots)) %>% 
+
+ggplot(., aes(x = flowering_time, y = z68_shoots, colour = nitrate_level)) +
+  labs(title = "Branch number vs days to z68", 
+       subtitle = "Per batch by nitrate level", 
+       x = "Days to z68", 
+       y = "Branches") +
+  geom_jitter() +
+  geom_smooth(method = "lm", colour = "black", size = .5) +
+  facet_grid(batch ~ nitrate_level) +
+  
+  theme(legend.position = "none")
+```
+
+**Comments**
+
+It looks as if there's a weak positive correlation between branch number and days to z68 when plants are grown on HN.
+
+Next, plotting this across the batches by calculating the mean number of branches per genotype.
+
+### Average across batches
+
+Calculating the following:
+
+* Mean number of branches per genotype
+* Mean number of days to z68 per genotype
+
+```{r}
+ril_phenotypes %>%
+  filter(!is.na(z68_shoots)) %>% 
+  group_by(ril_id, nitrate_level) %>% 
+  summarise(avg_z68_shoots = mean(z68_shoots),
+            avg_flowering_time = mean(flowering_time)) %>% 
+  
+  ggplot(., aes(x = avg_flowering_time, y = avg_z68_shoots, colour = nitrate_level)) +
+  labs(title = "Branch number vs days to z68", 
+       subtitle = "Mean across batches for each nitrate level", 
+       x = "Days to z68 (mean)", 
+       y = "Branches (mean)") +
+  expand_limits(y = 0) +
+  geom_jitter() +
+  geom_smooth(method = "lm", colour = "black", size = .5) +
+  facet_grid(. ~ nitrate_level) +
+  
+  theme(legend.position = "none")
+```
+
+**Comments**
+
+There appears to be a positive correlation on HN for the number of days it takes a plant to reach the Z68 stage and the mean number of branches it produces.
+
+It is possible that some traits are affected by the position in which the plants were grown.
+
+To test this, traits can be plotted by position using `geom_tile`, which creates a sort of heat map of the trait based on position.
+
+### Flowering time and position
+
+```{r}
+# by position e.g A1, H2
+# separate columns, with leading zero
+ril_phenotypes %>% 
+  mutate(col_pos = str_remove(position_grid_location, 
+                              "[A-Z]"),
+         row_pos = str_remove(position_grid_location, 
+                              "[0-9]+")) %>% 
+  ggplot(aes(col_pos, row_pos, fill = flowering_time)) +
+    labs(title = "Flowering time by position", 
+       subtitle = "Per batch for each nitrate level", 
+       x = "Column", 
+       y = "Row") +
+  geom_tile() +
+  facet_grid(batch ~ nitrate_level)
+```
+
+**Comments**
+
+There does not seems to be any obvious pattern in the flowering time based on position. Overall flowering appears to occur faster on HN than it does on LN.
+
+
+> Should follow up a bit more on this, maybe check the average across rows/columns to rule out edge effects.
+

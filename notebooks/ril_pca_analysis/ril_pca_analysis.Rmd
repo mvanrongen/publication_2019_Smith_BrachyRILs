@@ -1,0 +1,124 @@
+---
+title: "Brachy PCA analysis"
+author: "Martin van Rongen"
+date: "2019-05-03"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 4
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+## Loading libraries and settings
+
+Load the relevant libraries and change some default plotting settings
+```{r, message = FALSE, warning = FALSE}
+library(tidyverse)
+library(visdat)
+library(ggfortify)
+library(broom)
+theme_set(theme_bw())
+scale_colour_discrete <- function(...) scale_color_brewer(palette = "Dark2")
+scale_fill_discrete <- function(...) scale_fill_brewer(palette = "Dark2")
+```
+
+## Read in clean data
+
+To ensure that the data is read in correctly, the `.csv` file that was created above is read in using the `read_csv` command. This way a tibble is created where the column specification is as basic as possible. This helps to avoid unnecessary factor conversions.
+
+```{r}
+ril_phenotypes <- read_csv("../../data/processed/ril_phenotypes/ril_phenotypic_data.csv")
+```
+
+How are the missing values distributed throughout the data set?
+
+Note that removing the NAs basically eliminates batch 1.
+
+```{r}
+vis_miss(ril_phenotypes)
+```
+
+```{r}
+pca_data <- ril_phenotypes %>%
+  mutate(batch = as.factor(batch)) %>% 
+  select(nitrate_level,
+         batch,
+         ril_id,
+         z68_shoots,
+         z68_greenness,
+         z68_das,
+         z68_senescence_interval,
+         senescence_das,
+         senescence_height,
+         seed_weight_g,
+         lifespan) %>%
+  drop_na()
+```
+
+PCA analysis
+
+* center = centering around the mean
+* scale the data because the data are measured on different scales
+
+> Colour the parents
+> Connect the individuals with lines, do they cluster together?
+> Store the PCA values as a trait in the original data set, you can perform QTLs & other analyses on them then.
+
+```{r}
+pca_data_num <- pca_data %>% 
+  select(-(nitrate_level:ril_id)) %>% 
+  prcomp(center = TRUE, scale. = TRUE)
+
+autoplot(pca_data_num,
+         data = pca_data,
+         colour = "batch")
+         #loadings = TRUE,
+         #loadings.label = TRUE)
+```
+
+You get three things from your PCA:
+
+1. PC scores
+access from object
+2. Eigenvalues (PC variance)
+
+```{r}
+str(pca_data_num)
+
+# This gives the values of the PC
+pca_data_num$x
+
+# Bind the PC values to the original data set
+bind_cols(pca_data, as_tibble(pca_data_num$x)) %>%
+  # Create logical column to determine species for plotting purposes
+  mutate(is_wt = ril_id == "Bd21-3") %>% 
+  ggplot(aes(PC1, PC2, colour = is_wt)) +
+  geom_point()
+
+tidy(pca_data_num, matrix = "x")
+
+# Eigenvalues = variance associated with each principal component
+#pca_data_num$sdev
+# Or in a tidy
+tidy(pca_data_num, matrix = "pcs")
+
+# Scree plot
+tidy(pca_data_num, matrix = "pcs") %>% 
+  ggplot(aes(PC, percent)) +
+  geom_col() +
+  geom_line(aes(y = cumulative))
+
+# Return the weight/loading of the original variables on the new principal components.
+tidy(pca_data_num, matrix = "variables")
+```
+
+> Plot PC2 vs PC3 and see if you can find out what determines/separates them
+
+> PCA, colour by nitrate, do the points separate
+
+> How about by batch? Batch effects
+

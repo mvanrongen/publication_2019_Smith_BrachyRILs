@@ -1,0 +1,154 @@
+---
+title: "Brachy RIL plant height"
+author: "Martin van Rongen"
+date: "2019-05-01"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 4
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+## Loading libraries and settings
+
+Load the relevant libraries and change some default plotting settings
+
+```{r, message = FALSE, warning = FALSE}
+library(tidyverse)
+theme_set(theme_bw())
+scale_colour_discrete <- function(...) scale_color_brewer(palette = "Dark2")
+scale_fill_discrete <- function(...) scale_fill_brewer(palette = "Dark2")
+```
+
+## Read in clean data
+
+To ensure that the data is read in correctly, the `.csv` file that was created previously is read in using the `read_csv` command. This way a tibble is created where the column specification is as basic as possible. This helps to avoid unnecessary factor conversions.
+
+**Note:** Exclude Bd21-3 filler plants?
+
+```{r}
+ril_phenotypes <- read_csv("../../data/processed/ril_phenotypes/ril_phenotypic_data.csv")
+```
+
+## Plant height
+
+### Per batch for each nitrate level
+
+Plotting the plant height (cm) for all genotypes per batch for each nitrate level. This to see whether plant height varies across batches and if it is affected by nitrate availability.
+
+```{r}
+ril_phenotypes %>% 
+  filter(!is.na(senescence_height)) %>% 
+  
+  ggplot(., aes(x = ril_id, y = senescence_height, colour = nitrate_level)) +
+  labs(title = "Plant height", 
+       subtitle = "Per batch for each nitrate level", 
+       x = "Genotype", 
+       y = "Plant height (cm)") +
+  expand_limits(y = 0) +
+  geom_jitter() +
+  facet_grid(batch ~ nitrate_level) +
+  
+  theme(legend.position = "none",
+        axis.text.x = element_blank())
+```
+
+**Comments**
+
+Plant height seems to vary a bit between batches (e.g. height in batch 3 seems somewhat higher than in batches 1, 2 and 4) and there does not seem to be much of an effect of nitrate availability on plant height.
+
+To look at this a bit more, plotting these data as a boxplot.
+
+### Per batch for each nitrate level (boxplot)
+
+```{r}
+ril_phenotypes %>% 
+  filter(!is.na(lifespan)) %>% 
+  
+  ggplot(., aes(x = nitrate_level, y = senescence_height, fill = nitrate_level)) +
+  labs(title = "Plant height", 
+       subtitle = "Per batch for each nitrate level", 
+       x = "Nitrate level",
+       y = "Plant height (cm)") +
+  expand_limits(y = 0) +
+  geom_boxplot() +
+  facet_grid(. ~ batch) +
+  
+  theme(legend.position = "none")
+```
+
+**Comments**
+
+Little effect of nitrate level on plant height (apart from maybe in batch 4). Across batches plant height varies.
+
+> Check again once all the data is available.
+
+> Check how this relates to Arabidopsis
+
+### Mean height across batches
+
+```{r}
+ril_phenotypes %>%
+  filter(!is.na(senescence_height)) %>% 
+  group_by(ril_id, nitrate_level) %>% 
+  summarise(avg_senescence_height = mean(senescence_height)) %>% 
+  
+  ggplot(., aes(x = fct_reorder(ril_id, avg_senescence_height), y = avg_senescence_height, colour = nitrate_level)) +
+  labs(title = "Plant height per RIL", 
+       subtitle = "Mean across batches for each nitrate level", 
+       x = "Genotype (reordered)", 
+       y = "Mean plant height (cm)") +
+  expand_limits(y = 0) +
+  geom_jitter() +
+  facet_grid(. ~ nitrate_level) +
+  geom_point(data = . %>%  filter(ril_id == "Bd3-1"), colour = "magenta", size = 3, alpha = 0.7) +
+  geom_point(data = . %>%  filter(ril_id == "Bd21"), colour = "royalblue3", size = 3, alpha = 0.7) +
+  geom_point(data = . %>%  filter(ril_id == "Bd21-3"), colour = "orange", size = 3, alpha = 0.7) +
+  
+  theme(legend.position = "none",
+        axis.text.x = element_blank())
+```
+
+**Comments**
+
+This plot shows that there is quite a range of plant heights across the RILs. The parental lines are far apart from one another, both on HN and LN (with Bd3-1 being taller than Bd21). The standard wild type Bd21-3 is similar to Bd21. Is Bd21-3 derived from Bd21?
+
+It looks as if Bd21 is taller on LN than on HN and that height for Bd3-1 is negatively affected by LN. Plotting this.
+
+### Plant height response in parental and wild type lines
+
+> These are called reaction-norm plots
+
+Plotting this as a line plot. Note: many height measurements are missing for Bd21-3, so there are few pairs. Filtering these out, since we're interesting in looking at changes across treatment.
+
+```{r}
+ril_phenotypes %>% 
+  filter(!is.na(senescence_height)) %>% 
+  filter(ril_id %in% c("Bd3-1", "Bd21", "Bd21-3")) %>% 
+  select(batch, id, ril_id, nitrate_level, senescence_height) %>% 
+  group_by(batch, id) %>% 
+  # Filter out values that have no paired observation
+  filter(n() > 1) %>% 
+  
+  ggplot(., aes(x = nitrate_level, y = senescence_height, label = id)) +
+    labs(title = "Plant height response to nitrate", 
+       subtitle = "Response per genotype", 
+       x = "Nitrate level", 
+       y = "Plant height (cm)") +
+  expand_limits(y = 0) +
+  geom_point() +
+  geom_line(aes(group = interaction(batch, id))) +
+  facet_grid(. ~ ril_id)
+```
+
+**Comments**
+
+Overall it appears that the plant height of parental/control lines respond as follows:
+
+* Bd21 height increases in response to LN
+* Bd21-3 height generally increases in response to LN, with a few exceptions
+* Bd3-1 height decreases in response to LN

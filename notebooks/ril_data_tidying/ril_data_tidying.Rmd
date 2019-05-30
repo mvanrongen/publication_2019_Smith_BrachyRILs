@@ -1,0 +1,425 @@
+---
+title: "Brachy data tidying"
+author: "Martin van Rongen"
+date: "2019-05-01"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 4
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Loading libraries and settings
+
+Load the relevant libraries and change some default plotting settings
+```{r, message = FALSE, warning = FALSE}
+library(tidyverse)
+library(lubridate)
+library(readxl)
+library(visdat)
+```
+
+## Read in the data
+
+Read in the data.
+
+```{r}
+
+path <- file.path(... = "../../data/raw/2019_05_28_all_RIL_data_reworked.xlsx")
+
+ril_phenotypes <- path %>%
+  excel_sheets() %>%
+  set_names() %>% 
+  map_df(~ read_excel(path = path, sheet = .x), .id = "sheet")
+```
+
+**Comments**
+
+There are some columns in one or more of the spreadsheet worksheets that contain some kind of formatting that is picked up by R, resulting in additional columns. The last column that has actual data is the `seed_weight` column.
+
+So the columns following that should be removed, since they contain no data.
+
+```{r}
+ril_phenotypes <- ril_phenotypes %>% 
+  select(-("...25":"...33"))
+```
+
+## Column and value adjustments
+
+Adjust the names of the following columns:
+
+* Ensure all column names are lower case
+* Rename the "line" column to "ril_id" since "line" is a function name
+* Rename the "Z68-Senescence_interval" column to "z68_senescence_interval" to have consistent naming
+* Rename the "Greeness_Z68" column to "z68_greenness" for consistent naming
+
+Change the "L" and "N" values for `nitrate_level` to "LN" and "HN", respectively. This makes it a little clearer to what is meant by these values.
+
+```{r}
+ril_phenotypes <- ril_phenotypes %>% 
+  rename(id = "Position_ID",
+         ril_id = Line,
+         z68_greenness = "Greeness_Z68",
+         z68_senescence_interval = "Z68-Senescence_interval") %>% 
+  rename_all(tolower) %>% 
+  mutate(nitrate_level = replace(nitrate_level, nitrate_level == "L", "LN")) %>% 
+  mutate(nitrate_level = replace(nitrate_level, nitrate_level == "H", "HN"))
+```
+
+### Duplicate detection
+
+Checking for duplicate entries.
+
+Doing this by checking if the combination nitrate_level, position_grid_location, ril_id, batch (use `count`) gives a count of 1.
+
+```{r}
+ril_phenotypes %>% 
+  group_by(nitrate_level, position_grid_location, ril_id, batch) %>% 
+  count() %>% 
+  filter(n != 1)
+```
+
+**Comments**
+
+This detects no rows, meaning that there are no duplicate entries.
+
+### Multiple RIL entries
+
+In some of the batches there are multiple entries for the same RIL. This is to compensate for plants dying in previous batches. Need to check if these extra genotypes correspond with what is in the original Excel files.
+
+Doing this by grouping by `nitrate_level` (there is a randomised grid per nitrate treatment), `ril_id` (which gives the individual RILs) and `batch`. The number of occurrences are then summarised using the `count` function and anything that occurs more or less than once is shown.
+
+```{r}
+ril_phenotypes %>% 
+  group_by(nitrate_level, ril_id, batch) %>% 
+  count() %>% 
+  filter(n != 1) %>% 
+  arrange(desc(n))
+```
+
+**Comments**
+
+As expected, the Bd21-3 genotype occurs many times in each batch, since it is used as a filler.
+All other filtered genotypes occur twice.
+
+Manually checked if the genotypes in batch 3 corresponded with those mentioned in the Excel file and they do.
+
+### ID column
+
+The `id` column should be a position ID for each plant, by `batch` and `nitrate_level`. Check if this is the case.
+In order to do this, create a `pos_id` column after grouping and filter out rows where the `pos_id` is NOT equal to `id`.
+
+```{r}
+ril_phenotypes %>% 
+  group_by(batch, nitrate_level) %>% 
+  mutate(pos_id = 1:n()) %>% 
+  filter(id != pos_id) %>% 
+  select(sheet, identifier, id, position_grid_location, ril_id, batch, pos_id)
+```
+**Comments**
+
+The sample with `identifier` **B8-HN-049** does not have a batch assigned to it, which is causing issues with the `pos_id`. Fix this and run again:
+
+```{r}
+ril_phenotypes <- ril_phenotypes %>%
+  mutate(batch = ifelse(identifier == "B8-HN-049", 8, batch))
+```
+
+```{r}
+ril_phenotypes %>% 
+  group_by(batch, nitrate_level) %>% 
+  mutate(pos_id = 1:n()) %>% 
+  filter(id != pos_id) %>% 
+  select(sheet, identifier, id, position_grid_location, ril_id, batch, pos_id)
+```
+
+**Comments**
+
+The `id` column is now identical to `pos_id`.
+
+### RIL naming
+
+Checking to see that RILs are always named RIL<3 numbers> and if not, that they are one of the parents/filler genotype. This ensures that all the naming is consistent.
+
+Filter all the rows that do NOT start with "RIL" and see how many unique `ril_id`s there are and how many samples of each.
+
+```{r}
+ril_phenotypes %>%
+  filter(!str_detect(ril_id, "^RIL")) %>% 
+  count(ril_id)
+```
+
+**Comments**
+
+The above shows that indeed there are only three non-RIL names, namely those of the two parental lines and the Bd21-3 wild type filler.
+
+## Missing values
+
+### Distribution of missing values
+
+How are the missing values distributed throughout the data set?
+
+```{r}
+vis_miss(ril_phenotypes)
+```
+
+```{r}
+ril_phenotypes %>% 
+  filter(is.na(z68_day))
+```
+
+**Comments**
+
+The stripes appear to be entries where no data was collected. Whether that means they were dead or did not germinate is not clear. However, since there are no data, they can probably be removed from the data set.
+
+Removing them using a filter for where there is no value for `z68_day`.
+
+```{r}
+ril_phenotypes <- ril_phenotypes %>% 
+  filter(!is.na(z68_day))
+```
+
+### Missing data (continued)
+
+Checking if there are still missing values and, if so,  whether that is an issue.
+
+```{r}
+vis_miss(ril_phenotypes)
+```
+
+**Comments**
+
+There are still some missing values, but these are mainly:
+
+* seed weights
+* greenness
+
+The `z68_shoots` shows that there is at least some missing values, namely `r ril_phenotypes %>% count(is.na(z68_shoots)) %>% mutate(frc = n[2]/n[1] * 100) %>% select(frc) %>% slice(1) %>% round(., 3)`%. 
+
+Check this:
+
+```{r}
+ril_phenotypes %>% 
+  filter(is.na(z68_shoots))
+```
+
+**Comments**
+
+A total of `r ril_phenotypes %>% filter(is.na(z68_shoots)) %>% count()` samples are missing a measurement for `z68_shoots`. Remove these.
+
+```{r}
+ril_phenotypes <- ril_phenotypes %>% 
+  filter(!is.na(z68_shoots))
+```
+
+## Checks on the data
+
+### Occurence of genotypes
+
+Checking how many times each genotype appears in the data set, per batch, per treatment with `count()` and check ones > 1 or 0.
+
+```{r}
+ril_phenotypes %>% 
+  group_by(ril_id, batch, nitrate_level) %>% 
+  count() %>% 
+  filter(n > 1 | n == 0) %>% 
+  arrange(n)
+```
+
+**Comments**
+
+There are no occurences where the genotype count is zero. There are many genotypes that occur more than once, mostly the filler Bd21-3 but also RILs that are present twice to compensate for dying plants in previous batches.
+
+How to deal with these duplicates? One way is to calculate an average of the `z68_shoots` so that a plasticity can be calculated. If this is not done, then it is unclear which value on HN corresponds with which value on LN, since the plants are in random grids within experiments.
+
+
+### Nitrate levels
+
+Check if each entry has a nitrate level.
+
+```{r}
+ril_phenotypes %>%
+  filter(is.na(nitrate_level))
+```
+
+**Comments**
+
+Every entry has a nitrate level.
+
+### Identifier
+
+There is an `identifier` column in the format of B<`batch`>-<`nitrate_level`>-<`id`>.
+Check whether each `identifier` entry is unique.
+
+How many rows are there in the data set?
+
+```{r}
+ril_phenotypes %>% tally()
+```
+
+Is each identifier unique?
+
+```{r}
+ril_phenotypes %>% summarise(n_distinct(identifier))
+```
+
+**Comments**
+
+The number of rows and unique values of `identifier` are equal, so each `identifier` is unique.
+
+### Number of reps per line
+
+```{r}
+ril_phenotypes %>% 
+  group_by(ril_id, nitrate_level) %>% 
+  summarise(n = n())
+```
+
+## Calculating new variables
+
+### Dates & lifespan
+
+The sowing date has been recorded, as well as the flowering date (`z68_`) and senescence date (in separate columns for year, month and day). Using these data, the combined dates, as well as the lifespan of each plant can be determined.
+
+To do this, we use the `lubridate` package.
+
+* Create a new column that combines the `year`, `month` and `day` values
+* Convert to `lubridate` object
+
+```{r}
+ril_phenotypes <- ril_phenotypes %>% 
+  unite("sow_date", c("sow_year", "sow_month", "sow_day"), sep = "-", remove = FALSE) %>% 
+  unite("senescence_date", c("senescence_year", "senescence_month", "senescence_day"), sep = "-", remove = FALSE) %>% 
+  unite("z68_date", c("z68_year", "z68_month", "z68_day"), sep = "-", remove = FALSE) %>%
+  mutate(sow_date = ymd(sow_date),
+         senescence_date = ymd(senescence_date),
+         z68_date = ymd(z68_date),
+         lifespan = as.numeric(senescence_date - sow_date),
+         flowering_time = as.numeric(z68_date - sow_date),
+         flowering_senescence_interval = as.numeric(senescence_date - z68_date))
+```
+
+### Check on z68_das
+
+```{r}
+ril_phenotypes %>% 
+  select(sow_date, z68_date, z68_das, flowering_time) %>% 
+  filter(z68_das != flowering_time)
+  #write_csv(., path = "../data/errors/2019_05_21_z68_das_anomalies.csv", na = "")
+```
+
+**Comments**
+
+There are `r ril_phenotypes %>% filter(z68_das != flowering_time) %>% count()` rows where the value from `z68_das` does not match the calculated `flowering_time`. Most values appear to be exactly 7 days off, with the value in `z68_das` being 7 days longer than the calculated value. It might be an error when the `z68_das` values were calculated in Excel.
+
+2019-05-23: followed-up with Stephanie about this. The `z68_das` column was determined using a formula in Excel, that had to be manually edited to account for each month. It is highly likely that some errors were introduced when copying/pasting. The values in the year-month-date columns *are* definitely correct, so we can rely on the `flowering_time` column calculated by `R`.
+
+Dropping the `z68_das` column.
+
+```{r}
+ril_phenotypes <- ril_phenotypes %>% 
+  select(-z68_das)
+```
+
+
+### Check on senescence_das
+
+The lifespan of each plant has been calculated using Excel. This is the time between sowing and senescence. The `lifespan` values have been calculated after creating `senescence_date` and `sow_date`, taking the difference between the two.
+
+In principal the values of the `senescence_das` and `lifespan` columns should be the same, but this there might be errors with the manual calculations in Excel. Checking this:
+
+```{r}
+ril_phenotypes %>% 
+  filter(senescence_das != lifespan)
+  #write_csv(., path = "../data/errors/2019_05_22_lifespan_anomalies.csv")
+```
+
+**Comments**
+
+There are `r ril_phenotypes %>% filter(senescence_das != lifespan) %>% count()` rows where `senescence_das` and `lifespan` do not agree.
+
+Manual check reveals that all the intervals are correctly calculated in R. Therefore the `senescence_das` values must be incorrect.
+Removing the `senescence_das` column and keeping the `lifespan` one.
+
+```{r}
+ril_phenotypes <- ril_phenotypes %>% 
+  select(-senescence_das)
+```
+
+## Check on z68_senescence_interval
+
+```{r}
+ril_phenotypes %>% 
+  filter(z68_senescence_interval != flowering_senescence_interval) %>% 
+  select(identifier, z68_date, senescence_date, z68_senescence_interval, flowering_senescence_interval)
+  #write_csv(., path = "../data/errors/2019_05_26_flowering_senescence_anomalies.csv")
+```
+
+**Comments**
+
+There are `r ril_phenotypes %>% filter(z68_senescence_interval != flowering_senescence_interval) %>% count()` rows where `z68_senescence_interval` and `flowering_senescence_interval` do not match.
+
+Manually checking these values shows that they have been correctly calculated in R. Therefore the `flowering_senescence_interval` values should be correct.
+
+Removing the 'z68_senescence_interval` column and keeping the `flowering_senescence_interval` one.
+
+```{r}
+ril_phenotypes <- ril_phenotypes %>% 
+  select(-z68_senescence_interval)
+```
+
+### Value ranges {#value_ranges}
+
+Check whether the value ranges of the different variables make some sense.
+
+```{r}
+ril_phenotypes %>% 
+  group_by(nitrate_level) %>%
+  select(z68_shoots,
+         z68_greenness,
+         flowering_time,
+         flowering_senescence_interval,
+         lifespan,
+         senescence_height,
+         seed_weight_g) %>% 
+  summarise_all(list(min = min, max = max, mean = mean), na.rm = TRUE)
+```
+
+**Comments**
+
+> Check these
+
+### Batches
+
+Checking when the batches were sown, using the new `sow_date`.
+
+```{r}
+ril_phenotypes %>% 
+  count(sow_date, batch)
+```
+
+**Comments**
+
+Turns out that some batches (e.g. batch 3 and 4) were sown on the same day. This means that they are not "true" independent batches, but might be considered as one (with different blocks, since each batch-within-a-batch was sown either close to the door (DP) or away from the door (DD)).
+
+## Export table
+
+Export the table in CSV format (into the /data directory).
+
+```{r}
+write_csv(ril_phenotypes, path = "../../data/processed/ril_phenotypes/ril_phenotypic_data.csv", na = "")
+```
+
+## Cleaned data
+
+### Read in clean data
+
+To ensure that the data is read in correctly, the `.csv` file that was created above is read in using the `read_csv` command. This way a tibble is created where the column specification is as basic as possible. This helps to avoid unnecessary factor conversions.
+
+```{r}
+ril_phenotypes <- read_csv("../../data/processed/ril_phenotypes/ril_phenotypic_data.csv")
+```
