@@ -46,7 +46,7 @@ ril_phenotypes <- ril_phenotypes %>%
 
 ```{r}
 ril_phenotypes %>%
-  select(nitrate_level, z68_shoots, flowering_time, flowering_senescence_interval, lifespan,z68_greenness, senescence_height, seed_weight_g) %>% 
+  select(nitrate_level, z68_shoots, flowering_time, flowering_senescence_interval, lifespan, z68_greenness, senescence_height, seed_weight_g) %>% 
   ggpairs(aes(colour = nitrate_level, alpha = 0.7))
 ```
 
@@ -57,51 +57,28 @@ ggsave("ril_paired_comparisons.pdf", path = "../../figures/ril_phenotypes/", wid
 ```
 
 ## Traits LN vs HN
-
-### Branching
-
 ```{r}
-ril_phenotypes %>% 
-  group_by(batch, nitrate_level, ril_id) %>% 
-  summarise(avg_z68_shoots = mean(z68_shoots)) %>% 
-  spread(nitrate_level, avg_z68_shoots) %>% 
+
+traits <- c("z68_shoots", "flowering_time", "flowering_senescence_interval", "lifespan", "z68_greenness", "senescence_height", "seed_weight_g")
+
+
+for (i in traits){
   
-  ggplot(aes(x = LN, y = HN)) +
-  labs(title = "Mean branching LN vs HN") +
-  geom_point() +
-  geom_smooth(method = "lm", colour = "black", size = 0.5) +
-  geom_point(data = . %>%  filter(ril_id == "Bd3-1"), colour = "magenta", size = 3, alpha = 0.7) +
-  geom_point(data = . %>%  filter(ril_id == "Bd21"), colour = "royalblue3", size = 3, alpha = 0.7)
+  
+  plot <- ril_phenotypes %>% 
+    group_by(batch, nitrate_level, ril_id) %>% 
+    summarise(avg_trait = mean(!!ensym(i))) %>% 
+    spread(nitrate_level, avg_trait) %>% 
+  
+    ggplot(aes(x = LN, y = HN)) +
+    labs(title = paste0("Correlation LN to HN for ", i)) +
+    geom_point() +
+    geom_smooth(method = "lm", colour = "black", size = 0.5) +
+    geom_point(data = . %>%  filter(ril_id == "Bd3-1"), colour = "magenta", size = 3, alpha = 0.7) +
+    geom_point(data = . %>%  filter(ril_id == "Bd21"), colour = "royalblue3", size = 3, alpha = 0.7)
+  
+  print(plot)
+}
+
 ```
 
-### Flowering time
-
-```{r}
-ril_phenotypes %>% 
-  group_by(batch, nitrate_level, ril_id) %>% 
-  summarise(avg_flowering_time = mean(flowering_time)) %>% 
-  spread(nitrate_level, avg_flowering_time) %>% 
-  
-  ggplot(aes(x = LN, y = HN)) +
-  labs(title = "Mean flowering time LN vs HN") +
-  geom_point() +
-  geom_smooth(method = "lm", colour = "black", size = 0.5) +
-  geom_point(data = . %>%  filter(ril_id == "Bd3-1"), colour = "magenta", size = 3, alpha = 0.7) +
-  geom_point(data = . %>%  filter(ril_id == "Bd21"), colour = "royalblue3", size = 3, alpha = 0.7)
-```
-
-### Flowering senescence interval
-
-```{r}
-ril_phenotypes %>% 
-  group_by(batch, nitrate_level, ril_id) %>% 
-  summarise(avg_flowering_senescence_interval = mean(flowering_senescence_interval)) %>% 
-  spread(nitrate_level, avg_flowering_senescence_interval) %>% 
-  
-  ggplot(aes(x = LN, y = HN)) +
-  labs(title = "Mean flowering senescence interval LN vs HN") +
-  geom_point() +
-  geom_smooth(method = "lm", colour = "black", size = 0.5) +
-  geom_point(data = . %>%  filter(ril_id == "Bd3-1"), colour = "magenta", size = 3, alpha = 0.7) +
-  geom_point(data = . %>%  filter(ril_id == "Bd21"), colour = "royalblue3", size = 3, alpha = 0.7)
-```
