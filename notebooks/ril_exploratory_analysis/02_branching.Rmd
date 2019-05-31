@@ -246,7 +246,35 @@ ril_phenotypes %>%
 
 2019-04-30: There is considerable variation between batches, at least when only the first 4 batches are taken into account.
 
-### Branching and position
+## Branching vs lifespan
+
+To see what kind of effect the lifespan of a plant may have on the number of branches, the `lifespan` is plotted against the `z68_shoots`.
+
+```{r}
+ril_phenotypes %>%
+  group_by(ril_id, nitrate_level) %>% 
+  filter(!is.na(z68_shoots) & !is.na(lifespan)) %>% 
+  summarise(avg_z68_shoots = mean(z68_shoots),
+         avg_lifespan = mean(lifespan)) %>% 
+
+ggplot(., aes(x = avg_lifespan, y = avg_z68_shoots, colour = nitrate_level)) +
+    labs(title = "Branch number vs lifespan", 
+       subtitle = "Mean per genotype by nitrate level", 
+       x = "Lifespan (days)", 
+       y = "Branches") +
+  geom_point() +
+  geom_smooth(method = "lm", colour = "black", size = .5) +
+  geom_point(data = . %>%  filter(ril_id == "Bd3-1"), colour = "magenta", size = 3, alpha = 0.7) +
+  geom_point(data = . %>%  filter(ril_id == "Bd21"), colour = "royalblue3", size = 3, alpha = 0.7) +
+  geom_point(data = . %>%  filter(ril_id == "Bd21-3"), colour = "orange", alpha = 0.7) +
+  facet_wrap(. ~ nitrate_level)
+```
+
+**Comments**
+
+There appears to be a strong correlation between `lifespan` and `z68_shoots` on HN, with a possible weaker correlation on LN.
+
+## Branching and position
 
 ```{r}
 # by position e.g A1, H2
@@ -270,4 +298,3 @@ ril_phenotypes %>%
 Branching on HN is clearly higher than on LN, but again there does not seems to be an obvious pattern in relation to the grid. This suggests that there are no obvious positional effects to branching.
 
 > Should follow up a bit more on this, maybe check the average across rows/columns to rule out edge effects.
-
