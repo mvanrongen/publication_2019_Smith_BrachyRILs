@@ -10,7 +10,7 @@ output:
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ## Loading libraries and settings
@@ -44,27 +44,38 @@ ril_phenotypes <- ril_phenotypes %>%
 
 ### All traits
 
-```{r}
+```{r, message = FALSE, warning = FALSE}
 ril_phenotypes %>%
-  select(nitrate_level, z68_shoots, flowering_time, flowering_senescence_interval, lifespan, z68_greenness, senescence_height, seed_weight_g) %>% 
+  select(nitrate_level, 
+         z68_shoots, 
+         flowering_time, 
+         flowering_senescence_interval,
+         lifespan, 
+         z68_greenness, 
+         senescence_height, 
+         seed_weight_g) %>% 
+  
   ggpairs(aes(colour = nitrate_level, alpha = 0.7))
 ```
 
 Save to a PDF:
 
-```{r}
+```{r, message = FALSE, warning = FALSE}
 ggsave("ril_paired_comparisons.pdf", path = "../../figures/ril_phenotypes/", width = 20, height = 20)
 ```
 
-## Traits LN vs HN
-```{r}
+### Traits LN vs HN
 
-traits <- c("z68_shoots", "flowering_time", "flowering_senescence_interval", "lifespan", "z68_greenness", "senescence_height", "seed_weight_g")
-
+```{r, message = FALSE, warning = FALSE}
+traits <- c("z68_shoots", 
+            "flowering_time", 
+            "flowering_senescence_interval", 
+            "lifespan", 
+            "z68_greenness", 
+            "senescence_height", 
+            "seed_weight_g")
 
 for (i in traits){
-  
-  
   plot <- ril_phenotypes %>% 
     group_by(batch, nitrate_level, ril_id) %>% 
     summarise(avg_trait = mean(!!ensym(i))) %>% 
