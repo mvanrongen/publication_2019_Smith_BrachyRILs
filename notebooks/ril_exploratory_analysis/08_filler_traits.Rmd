@@ -28,6 +28,12 @@ scale_fill_discrete <- function(...) scale_fill_brewer(palette = "Dark2")
 ril_phenotypes <- read_csv("../../data/processed/ril_phenotypes/ril_phenotypic_data.csv")
 ```
 
+Reorder the `nitrate_level`.
+
+```{r}
+ril_phenotypes <- ril_phenotypes %>%
+  mutate(nitrate_level = factor(nitrate_level, levels = c("LN", "HN")))
+```
 
 > Plot branch number for Bd21-3 in grid, based on position and use data label + colour
 

@@ -34,6 +34,13 @@ To ensure that the data is read in correctly, the `.csv` file that was created p
 ril_phenotypes <- read_csv("../../data/processed/ril_phenotypes/ril_phenotypic_data.csv")
 ```
 
+Reorder the `nitrate_level`.
+
+```{r}
+ril_phenotypes <- ril_phenotypes %>%
+  mutate(nitrate_level = factor(nitrate_level, levels = c("LN", "HN")))
+```
+
 ## Seed weight vs branches
 
 ### Per batch by nitrate level
