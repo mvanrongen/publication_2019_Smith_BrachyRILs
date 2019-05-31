@@ -260,69 +260,11 @@ ril_phenotypes %>%
         legend.position = "none")
 ```
 
-### Per batch by nitrate level
-
-Plotting the number of branches against the time it took to reach the Z68 stage.
-Added a regression line.
-
-```{r}
-ril_phenotypes %>%
-  filter(!is.na(z68_shoots)) %>% 
-
-ggplot(., aes(x = flowering_time, y = z68_shoots, colour = nitrate_level)) +
-  labs(title = "Branch number vs flowering time", 
-       subtitle = "Per batch by nitrate level", 
-       x = "Flowering time (days)", 
-       y = "Branches") +
-  geom_jitter() +
-  geom_smooth(method = "lm", colour = "black", size = .5) +
-  facet_grid(batch ~ nitrate_level) +
-  
-  theme(legend.position = "none")
-```
-
-**Comments**
-
-It looks as if there's a weak positive correlation between branch number and days to z68 when plants are grown on HN.
-
-Next, plotting this across the batches by calculating the mean number of branches per genotype.
-
-### Average across batches
-
-Calculating the following:
-
-* Mean number of branches per genotype
-* Mean number of days to z68 per genotype
-
-```{r}
-ril_phenotypes %>%
-  filter(!is.na(z68_shoots)) %>% 
-  group_by(ril_id, nitrate_level) %>% 
-  summarise(avg_z68_shoots = mean(z68_shoots),
-            avg_flowering_time = mean(flowering_time)) %>% 
-  
-  ggplot(., aes(x = avg_flowering_time, y = avg_z68_shoots, colour = nitrate_level)) +
-  labs(title = "Branch number vs flowering time", 
-       subtitle = "Mean across batches for each nitrate level", 
-       x = "Flowering time (days)", 
-       y = "Branches") +
-  expand_limits(y = 0) +
-  geom_jitter() +
-  geom_smooth(method = "lm", colour = "black", size = .5) +
-  facet_grid(. ~ nitrate_level) +
-  
-  theme(legend.position = "none")
-```
-
-**Comments**
-
-There appears to be a positive correlation on HN for the number of days it takes a plant to reach the Z68 stage and the mean number of branches it produces.
+### Flowering time and position
 
 It is possible that some traits are affected by the position in which the plants were grown.
 
 To test this, traits can be plotted by position using `geom_tile`, which creates a sort of heat map of the trait based on position.
-
-### Flowering time and position
 
 ```{r}
 # by position e.g A1, H2
