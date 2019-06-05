@@ -90,6 +90,79 @@ for (i in traits){
   
   print(plot)
 }
+```
 
+### Overlap least and most plastic lines other traits
+
+Obtain the `ril_id` for the least and most plastic lines:
+
+```{r}
+ril_plasticity <- ril_phenotypes %>%
+  group_by(batch, nitrate_level, ril_id) %>% 
+  summarise(z68_shoots_mean = mean(z68_shoots)) %>% 
+  spread(nitrate_level, z68_shoots_mean) %>% 
+  mutate(plasticity = HN - LN) %>% 
+  filter(!is.na(plasticity)) %>% 
+  ungroup() %>% 
+  group_by(ril_id) %>%
+  summarise(n = n(),
+            avg_plasticity = mean(plasticity))
+
+least_plastic <- ril_plasticity %>%
+  top_n(-10, avg_plasticity) %>% 
+  select(ril_id)
+
+
+most_plastic <- ril_plasticity %>%
+  top_n(10, avg_plasticity) %>% 
+  select(ril_id)
+```
+
+Overlap with least plastic lines:
+```{r}
+traits <- c("z68_shoots", 
+            "flowering_time", 
+            "flowering_senescence_interval", 
+            "lifespan", 
+            "z68_greenness", 
+            "senescence_height", 
+            "seed_weight_g")
+
+for (i in traits){
+  top_traits <- ril_phenotypes %>% 
+    filter(nitrate_level == "LN") %>% 
+    group_by(ril_id) %>% 
+    summarise(avg_trait = mean(!!ensym(i))) %>%
+    mutate(trait_id = i) %>%
+    mutate(nitrate_level = "LN") %>%
+    top_n(10, avg_trait) %>% 
+    semi_join(least_plastic, by = "ril_id") %>% 
+  
+  print(top_traits)
+}
+```
+
+Overlap with most plastic lines:
+```{r}
+traits <- c("z68_shoots", 
+            "flowering_time", 
+            "flowering_senescence_interval", 
+            "lifespan", 
+            "z68_greenness", 
+            "senescence_height", 
+            "seed_weight_g")
+
+for (i in traits){
+  top_traits <- ril_phenotypes %>% 
+    filter(nitrate_level == "HN") %>% 
+    group_by(ril_id) %>% 
+    summarise(avg_trait = mean(!!ensym(i))) %>%
+    mutate(trait_id = i) %>%
+    mutate(nitrate_level = "HN") %>%
+    top_n(10, avg_trait) %>% 
+    semi_join(most_plastic, by = "ril_id") %>% 
+  
+  print(top_traits)
+}
 ```
 

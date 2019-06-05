@@ -246,6 +246,28 @@ ril_phenotypes %>%
 
 2019-04-30: There is considerable variation between batches, at least when only the first 4 batches are taken into account.
 
+### Top 10 least and most plastic lines
+```{r}
+ril_plasticity <- ril_phenotypes %>%
+  group_by(batch, nitrate_level, ril_id) %>% 
+  summarise(z68_shoots_mean = mean(z68_shoots)) %>% 
+  spread(nitrate_level, z68_shoots_mean) %>% 
+  mutate(plasticity = HN - LN) %>% 
+  filter(!is.na(plasticity)) %>% 
+  ungroup() %>% 
+  group_by(ril_id) %>%
+  summarise(n = n(),
+            avg_plasticity = mean(plasticity))
+```
+
+```{r echo = TRUE}
+ril_plasticity %>% 
+  top_n(10, avg_plasticity)
+
+ril_plasticity %>% 
+  top_n(-10, avg_plasticity)
+```
+
 ## Branching vs lifespan
 
 To see what kind of effect the lifespan of a plant may have on the number of branches, the `lifespan` is plotted against the `z68_shoots`.
