@@ -116,3 +116,29 @@ ril_phenotypes %>%
   
   theme(legend.position = "none")
 ```
+
+### Top-bottom yielders
+
+```{r}
+ril_seed_weight <- ril_phenotypes %>% 
+  filter(!is.na(seed_weight_g)) %>% 
+  group_by(ril_id, nitrate_level) %>% 
+  summarise(avg_seed_weight = mean(seed_weight_g))
+```
+
+```{r}
+most_seed_weight <- ril_seed_weight %>% 
+  group_by(nitrate_level) %>% 
+  top_n(10, avg_seed_weight) %>% 
+  arrange(nitrate_level, desc(avg_seed_weight))
+
+least_seed_weight <- ril_seed_weight %>% 
+  group_by(nitrate_level) %>% 
+  top_n(-10, avg_seed_weight) %>% 
+  arrange(nitrate_level, desc(avg_seed_weight))
+
+most_seed_weight
+least_seed_weight
+```
+
+
