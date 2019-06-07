@@ -290,3 +290,43 @@ There does not seems to be any obvious pattern in the flowering time based on po
 
 > Should follow up a bit more on this, maybe check the average across rows/columns to rule out edge effects.
 
+### Flowering time and shelf position
+
+```{r}
+ril_phenotypes %>% 
+  group_by(ril_id, nitrate_level, shelf) %>% 
+  summarise(avg_flowering_time = mean(flowering_time)) %>% 
+  
+  ggplot(aes(x = shelf, y = avg_flowering_time, fill = nitrate_level)) +
+  geom_boxplot() +
+  
+  theme(legend.position = "none")
+```
+
+### Mean variance flowering time
+
+```{r}
+ril_phenotypes %>% 
+  group_by(ril_id, nitrate_level) %>% 
+  summarise(var_flowering_time = var(flowering_time),
+            avg_flowering_time = mean(flowering_time)) %>% 
+  
+  ggplot(aes(x = avg_flowering_time, y = var_flowering_time, colour = nitrate_level)) +
+    labs(title = "Variance in flowering time vs flowering time", 
+       subtitle = "Averaged per RIL", 
+       x = "Flowering time (days)", 
+       y = "Flowering time variance") +
+  geom_point()
+```
+
+```{r}
+ril_phenotypes %>% 
+  group_by(ril_id, nitrate_level) %>% 
+  summarise(avg_flowering_time = mean(flowering_time),
+            avg_flowering_senescence = mean(flowering_senescence_interval)) %>% 
+  
+  ggplot(aes(x = avg_flowering_time, y = avg_flowering_senescence, colour = nitrate_level)) +
+  geom_point() +
+  geom_abline()
+```
+

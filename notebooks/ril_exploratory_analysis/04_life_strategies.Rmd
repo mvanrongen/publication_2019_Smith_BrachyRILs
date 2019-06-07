@@ -47,11 +47,8 @@ ril_phenotypes <- ril_phenotypes %>%
 
 See how the RIL life span is distributed between treatments.
 
-**Note** The lifespan is capped at < 100, because there are some strange outliers in batch 6 that obscure the rest of the data.
-
 ```{r}
 ril_phenotypes %>% 
-  filter(lifespan < 100) %>% 
   
   ggplot(., aes(x = ril_id, y = lifespan, colour = nitrate_level)) +
   labs(title = "RIL life span", 
@@ -93,3 +90,25 @@ ril_phenotypes %>%
 **Comments**
 
 It does look like the overall life span of plants grown on LN is shorter than that of plants grown on HN. This trend is visible in most batches, but not so in batch 1.
+
+## Life strategies
+
+How much time is each genotype spending in each life phase?
+
+```{r}
+ril_phenotypes %>% 
+  mutate(prop_sow_flower = flowering_time / lifespan,
+         prop_flower_senescence = flowering_senescence_interval / lifespan) %>% 
+  select(ril_id, nitrate_level, prop_sow_flower, prop_flower_senescence) %>% 
+  mutate(ril_id = fct_reorder(ril_id, prop_sow_flower, .fun = mean)) %>% 
+  gather(prop_sow_flower:prop_flower_senescence, key = "prop_trait", value = "proportion") %>% 
+  group_by(ril_id, nitrate_level, prop_trait) %>% 
+  summarise(avg_proportion = mean(proportion)) %>%
+  mutate(avg_proportion_sow_flower = avg_proportion[prop_trait == "prop_sow_flower"]) %>%
+  filter(nitrate_level == "HN") %>% 
+  
+  ggplot(aes(x = fct_reorder(ril_id, avg_proportion_sow_flower), y = avg_proportion, fill = prop_trait, colour = prop_trait)) +
+  geom_bar(stat = "identity") +
+  coord_flip()
+```
+

@@ -320,3 +320,19 @@ ril_phenotypes %>%
 Branching on HN is clearly higher than on LN, but again there does not seems to be an obvious pattern in relation to the grid. This suggests that there are no obvious positional effects to branching.
 
 > Should follow up a bit more on this, maybe check the average across rows/columns to rule out edge effects.
+
+### Mean variance branching
+
+```{r}
+ril_phenotypes %>% 
+  group_by(ril_id, nitrate_level) %>% 
+  summarise(var_branching = var(z68_shoots),
+            avg_branching = mean(z68_shoots)) %>% 
+  
+  ggplot(aes(x = avg_branching, y = var_branching, colour = nitrate_level)) +
+      labs(title = "Variance in branching vs branching", 
+       subtitle = "Averaged per RIL", 
+       x = "Branches (average)", 
+       y = "Branching variance") +
+  geom_point()
+```
