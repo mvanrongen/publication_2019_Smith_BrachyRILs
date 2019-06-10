@@ -108,7 +108,36 @@ ril_phenotypes %>%
   filter(nitrate_level == "HN") %>% 
   
   ggplot(aes(x = fct_reorder(ril_id, avg_proportion_sow_flower), y = avg_proportion, fill = prop_trait, colour = prop_trait)) +
+    labs(title = "Time spent in each life stage", 
+    subtitle = "Sowing to flowering and flowering to senescence", 
+    x = "Genotype (reordered)", 
+    y = "Proportion") +
   geom_bar(stat = "identity") +
-  coord_flip()
+  coord_flip() +
+  
+  theme(legend.position = "none",
+        axis.text.y = element_blank())
+```
+
+### Flowering to senescence response to N
+
+```{r}
+ril_phenotypes %>% 
+  group_by(nitrate_level, ril_id) %>% 
+  summarise(avg_flowering_senescence_interval = mean(flowering_senescence_interval)) %>% 
+  spread(nitrate_level, avg_flowering_senescence_interval) %>% 
+  mutate(flowering_senescence_plasticity = HN - LN) %>% 
+  
+  ggplot(aes(x = fct_reorder(ril_id, flowering_senescence_plasticity), y = flowering_senescence_plasticity)) +
+    labs(title = "Flowering-senescence interval plasticity", 
+    subtitle = "By genotype", 
+    x = "Genotype (reordered)", 
+    y = "Flowering-senescence interval plasticity") +
+  geom_point() +
+  geom_point(data = . %>%  filter(ril_id == "Bd3-1"), colour = "magenta", size = 3, alpha = 0.7) +
+  geom_point(data = . %>%  filter(ril_id == "Bd21"), colour = "royalblue3", size = 3, alpha = 0.7) +
+  geom_point(data = . %>%  filter(ril_id == "Bd21-3"), colour = "orange", size = 3, alpha = 0.7) +
+  
+  theme(axis.text.x = element_blank())
 ```
 

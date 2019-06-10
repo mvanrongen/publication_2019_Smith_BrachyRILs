@@ -29,7 +29,7 @@ Read in the data.
 
 ```{r}
 
-path <- file.path(... = "../../data/raw/2019_05_28_all_RIL_data_reworked.xlsx")
+path <- file.path(... = "../../data/raw/2019_06_07_all_RIL_data_reworked.xlsx")
 
 ril_phenotypes <- path %>%
   excel_sheets() %>%

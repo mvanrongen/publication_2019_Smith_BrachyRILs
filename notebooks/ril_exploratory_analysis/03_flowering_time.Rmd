@@ -319,6 +319,10 @@ ril_phenotypes %>%
   geom_point()
 ```
 
+### Flowering time vs flowering-senescence interval
+
+To see if flowering time has an effect on how long plants spend from flowering to senescence, the `flowering_time` is plotted against the `flowering_senescence_interval`.
+
 ```{r}
 ril_phenotypes %>% 
   group_by(ril_id, nitrate_level) %>% 
@@ -326,7 +330,15 @@ ril_phenotypes %>%
             avg_flowering_senescence = mean(flowering_senescence_interval)) %>% 
   
   ggplot(aes(x = avg_flowering_time, y = avg_flowering_senescence, colour = nitrate_level)) +
-  geom_point() +
-  geom_abline()
+      labs(title = "Flowering time vs flowering-senescence interval", 
+       subtitle = "Averaged per RIL", 
+       x = "Flowering time (days)", 
+       y = "Flowering-Senescence interval (days)") +
+  geom_point()
 ```
 
+**Comments**
+
+It seems that if a plant takes longer to flower, then the time from flowering to senescence is shorter too, at least on HN. Less clear on LN.
+
+> Explore further.
