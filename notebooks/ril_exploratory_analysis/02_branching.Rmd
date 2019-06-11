@@ -215,26 +215,22 @@ The overall branching plasticity appears to be higher in batches 3 and 4, compar
 
 ```{r}
 ril_phenotypes %>%
-  group_by(batch, nitrate_level, ril_id) %>% 
-  summarise(z68_shoots_mean = mean(z68_shoots)) %>% 
-  spread(nitrate_level, z68_shoots_mean) %>% 
+  group_by(nitrate_level, ril_id) %>% 
+  summarise(avg_z68_shoots = mean(z68_shoots)) %>% 
+  spread(nitrate_level, avg_z68_shoots) %>% 
   mutate(plasticity = HN - LN) %>% 
   filter(!is.na(plasticity)) %>% 
   ungroup() %>% 
   group_by(ril_id) %>%
   summarise(n = n(),
-            avg_plasticity = mean(plasticity),
-            sd = sd(plasticity),
-            se = sd / sqrt(n),
-            ci = 2 * se) %>% 
+            avg_plasticity = mean(plasticity)) %>% 
   
   ggplot(., aes(x = fct_reorder(ril_id, avg_plasticity), y = avg_plasticity )) +
   labs(title = "Branching plasticity (low to high)",
-       subtitle = "Mean per genotype (with 95% CI)",
+       subtitle = "Mean per genotype",
        x = "Genotype (reordered)", 
        y = "Branching plasticity (mean)") +
   geom_jitter() +
-  geom_errorbar(aes(ymin = avg_plasticity - ci, ymax = avg_plasticity + ci), width = 0.1) +
   geom_point(data = . %>%  filter(ril_id == "Bd3-1"), colour = "magenta", size = 3, alpha = 0.7) +
   geom_point(data = . %>%  filter(ril_id == "Bd21"), colour = "royalblue3", size = 3, alpha = 0.7) +
   geom_point(data = . %>%  filter(ril_id == "Bd21-3"), colour = "orange", size = 3, alpha = 0.7) +

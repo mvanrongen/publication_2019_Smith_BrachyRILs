@@ -141,3 +141,69 @@ ril_phenotypes %>%
   theme(axis.text.x = element_blank())
 ```
 
+## Life stategies vs shoot branching plasticity
+
+### Flowering time plasticity vs shoot branching
+
+```{r}
+ril_phenotypes %>%
+  group_by(nitrate_level, ril_id) %>% 
+  summarise(avg_z68_shoots = mean(z68_shoots),
+            avg_flowering_time = mean(flowering_time)) %>% 
+  gather(avg_z68_shoots:avg_flowering_time, key = "avg_trait", value = "measurement") %>% 
+  spread(nitrate_level, measurement) %>% 
+  mutate(plasticity = HN - LN) %>% 
+  select(-HN, -LN) %>% 
+  spread(avg_trait, plasticity) %>% 
+  rename_all(funs(str_replace(., "avg", "avg_plasticity"))) %>% 
+  
+  ggplot(aes(x = avg_plasticity_flowering_time, y = avg_plasticity_z68_shoots)) +
+  geom_point() +
+  geom_smooth(method = "lm", colour = "black", size = .5) +
+  geom_point(data = . %>%  filter(ril_id == "Bd3-1"), colour = "magenta", size = 3, alpha = 0.7) +
+  geom_point(data = . %>%  filter(ril_id == "Bd21"), colour = "royalblue3", size = 3, alpha = 0.7)
+```
+
+
+### Flowering-senescence interval vs shoot branching
+
+```{r}
+ril_phenotypes %>%
+  group_by(nitrate_level, ril_id) %>% 
+  summarise(avg_z68_shoots = mean(z68_shoots),
+            avg_flowering_senescence_interval = mean(flowering_senescence_interval)) %>% 
+  gather(avg_z68_shoots:avg_flowering_senescence_interval, key = "avg_trait", value = "measurement") %>% 
+  spread(nitrate_level, measurement) %>% 
+  mutate(plasticity = HN - LN) %>% 
+  select(-HN, -LN) %>% 
+  spread(avg_trait, plasticity) %>% 
+  rename_all(funs(str_replace(., "avg", "avg_plasticity"))) %>% 
+  
+  ggplot(aes(x = avg_plasticity_flowering_senescence_interval, y = avg_plasticity_z68_shoots)) +
+  geom_point() +
+  geom_smooth(method = "lm", colour = "black", size = .5) +
+  geom_point(data = . %>%  filter(ril_id == "Bd3-1"), colour = "magenta", size = 3, alpha = 0.7) +
+  geom_point(data = . %>%  filter(ril_id == "Bd21"), colour = "royalblue3", size = 3, alpha = 0.7)
+```
+
+### Life span plasticity vs shoot branching
+
+```{r}
+ril_phenotypes %>%
+  group_by(nitrate_level, ril_id) %>% 
+  summarise(avg_z68_shoots = mean(z68_shoots),
+            avg_lifespan = mean(lifespan)) %>% 
+  gather(avg_z68_shoots:avg_lifespan, key = "avg_trait", value = "measurement") %>% 
+  spread(nitrate_level, measurement) %>% 
+  mutate(plasticity = HN - LN) %>% 
+  select(-HN, -LN) %>% 
+  spread(avg_trait, plasticity) %>% 
+  rename_all(funs(str_replace(., "avg", "avg_plasticity"))) %>% 
+  
+  ggplot(aes(x = avg_plasticity_lifespan, y = avg_plasticity_z68_shoots)) +
+  geom_jitter() +
+  geom_smooth(method = "lm", colour = "black", size = .5) +
+  geom_point(data = . %>%  filter(ril_id == "Bd3-1"), colour = "magenta", size = 3, alpha = 0.7) +
+  geom_point(data = . %>%  filter(ril_id == "Bd21"), colour = "royalblue3", size = 3, alpha = 0.7)
+```
+

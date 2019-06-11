@@ -120,32 +120,26 @@ ggplot(., aes(x = avg_flowering_time, y = avg_z68_shoots, colour = nitrate_level
 
 ```{r}
 ril_phenotypes %>%
-  group_by(ril_id, nitrate_level) %>% 
+  group_by(nitrate_level, ril_id) %>% 
   summarise(avg_z68_shoots = mean(z68_shoots),
             avg_flowering_time = mean(flowering_time)) %>% 
-  gather(trait, measurement, nitrate_level:avg_flowering_time) %>% 
-  group_by(ril_id, trait) %>% 
-  mutate(treatment = row_number()) %>% 
-  mutate(treatment = ifelse(treatment == 1, "LN", "HN")) %>% 
-  unite(trait_treatment, trait, treatment, sep = "_") %>% 
-  spread(trait_treatment, measurement, fill = NA) %>%
-  drop_na() %>% 
-  mutate(branching_plasticity = as.numeric(avg_z68_shoots_HN) - as.numeric(avg_z68_shoots_LN),
-         flowering_plasticity = as.numeric(avg_flowering_time_HN) - as.numeric(avg_flowering_time_LN)) %>%
-
-ggplot(., aes(x = flowering_plasticity, y = branching_plasticity)) +
-    labs(title = "Flowering time plasticity vs branching plasticity", 
+  gather(avg_z68_shoots:avg_flowering_time, key = "avg_trait", value = "measurement") %>% 
+  spread(nitrate_level, measurement) %>% 
+  mutate(plasticity = HN - LN) %>% 
+  select(-HN, -LN) %>% 
+  spread(avg_trait, plasticity) %>% 
+  rename_all(funs(str_replace(., "avg", "avg_plasticity"))) %>% 
+  
+  ggplot(aes(x = avg_plasticity_flowering_time, y = avg_plasticity_z68_shoots)) +
+      labs(title = "Flowering time plasticity vs branching plasticity", 
        subtitle = "Average for each genotype", 
        x = "Flowering time plasticity", 
        y = "Branching plasticity") +
   geom_point() +
   geom_smooth(method = "lm", colour = "black", size = .5) +
   geom_point(data = . %>%  filter(ril_id == "Bd3-1"), colour = "magenta", size = 3, alpha = 0.7) +
-  geom_point(data = . %>%  filter(ril_id == "Bd21"), colour = "royalblue3", size = 3, alpha = 0.7) +
-  
-  theme(
-    legend.position = "none"
-  )
+  geom_point(data = . %>%  filter(ril_id == "Bd21"), colour = "royalblue3", size = 3, alpha = 0.7)
+
 ```
 
 ### Average flowering time and SPAD across all batches
