@@ -19,6 +19,7 @@ Load the relevant libraries and change some default plotting settings
 
 ```{r, message = FALSE, warning = FALSE}
 library(tidyverse)
+library(viridis)
 theme_set(theme_bw())
 scale_colour_discrete <- function(...) scale_color_brewer(palette = "Dark2")
 scale_fill_discrete <- function(...) scale_fill_brewer(palette = "Dark2")
@@ -312,6 +313,7 @@ ril_phenotypes %>%
        x = "Column", 
        y = "Row") +
   geom_tile() +
+  scale_fill_viridis() +
   facet_grid(batch ~ nitrate_level)
 ```
 
