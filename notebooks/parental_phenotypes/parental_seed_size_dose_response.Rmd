@@ -1,0 +1,38 @@
+---
+title: "Parental seed size dose response"
+author: "Martin van Rongen"
+date: "2019-06-12"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 4
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Loading libraries and settings
+
+Load the relevant libraries and change some default plotting settings
+
+```{r, message = FALSE, warning = FALSE}
+library(tidyverse)
+theme_set(theme_bw())
+scale_colour_discrete <- function(...) scale_color_brewer(palette = "Dark2")
+scale_fill_discrete <- function(...) scale_fill_brewer(palette = "Dark2")
+```
+
+## Read in clean data
+
+```{r}
+seed_size <- read_csv("../../data/processed/parental_phenotypes/2019_06_08_seed_size_dose_response_reworked.csv")
+```
+
+```{r}
+ggplot(seed_size, aes(x = genotype, y = seed_size)) +
+  geom_boxplot() +
+  facet_wrap(. ~ nitrate_level)
+```
+
