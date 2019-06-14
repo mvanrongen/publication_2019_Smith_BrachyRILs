@@ -57,9 +57,8 @@ pca_data <- ril_phenotypes %>%
          ril_id,
          z68_shoots,
          z68_greenness,
-         z68_das,
-         z68_senescence_interval,
-         senescence_das,
+         flowering_time,
+         flowering_senescence_interval,
          senescence_height,
          seed_weight_g,
          lifespan) %>%
@@ -82,9 +81,9 @@ pca_data_num <- pca_data %>%
 
 autoplot(pca_data_num,
          data = pca_data,
-         colour = "batch")
-         #loadings = TRUE,
-         #loadings.label = TRUE)
+         colour = "nitrate_level",
+         loadings = TRUE,
+         loadings.label = TRUE)
 ```
 
 You get three things from your PCA:

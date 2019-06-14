@@ -32,6 +32,10 @@ seed_size <- read_csv("../../data/processed/parental_phenotypes/2019_06_08_seed_
 
 ```{r}
 ggplot(seed_size, aes(x = genotype, y = seed_size)) +
+      labs(title = expression(paste("Seed size area ", (cm^2))), 
+       subtitle = "At different nitrate levels (mM)", 
+       x = "Genotype", 
+       y = expression(paste("Seed size area ", (cm^2)))) +
   geom_boxplot() +
   facet_wrap(. ~ nitrate_level)
 ```
