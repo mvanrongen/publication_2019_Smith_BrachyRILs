@@ -129,6 +129,31 @@ plot_df <- ril_phenotypes %>%
 
 plot_df$plots
 ```
+### Branching HN/LN
+```{r}
+ril_phenotypes %>%
+  group_by(nitrate_level, ril_id) %>% 
+  select(batch, id, ril_id, nitrate_level, z68_shoots) %>% 
+  filter(!is.na(z68_shoots)) %>% 
+  summarise(n = n(),
+            avg_branching = mean(z68_shoots)) %>% 
+  
+  ggplot(., aes(x = fct_reorder(ril_id, avg_branching), y = avg_branching, colour = nitrate_level)) +
+    labs(x = "Genotype (reordered)", 
+       y = "Tiller number") +
+  expand_limits(y = 0) +
+  geom_jitter() +
+  geom_errorbar(aes(ymin = avg_branching, ymax = avg_branching), width = 0.1) +
+  geom_point(data = . %>%  filter(ril_id == "Bd3-1"), colour = "magenta", size = 3, alpha = 0.7) +
+  geom_point(data = . %>%  filter(ril_id == "Bd21"), colour = "royalblue3", size = 3, alpha = 0.7) +
+  
+  theme(axis.text.x = element_blank(),
+        panel.grid.major.x = element_blank(),
+        panel.grid.major.y = element_blank(),
+        legend.position = c(0.2, 0.9))
+
+```
+
 
 ## Branching plasticity
 
