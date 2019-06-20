@@ -1,0 +1,129 @@
+---
+title: "Brachy RIL poster"
+author: "Martin van Rongen"
+date: "2019-06-18"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 4
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+## Loading libraries and settings
+
+Load the relevant libraries and change some default plotting settings
+
+```{r, message = FALSE, warning = FALSE}
+library(tidyverse)
+library(viridis)
+theme_set(theme_bw())
+scale_colour_discrete <- function(...) scale_color_brewer(palette = "Dark2")
+scale_fill_discrete <- function(...) scale_fill_brewer(palette = "Dark2")
+```
+
+## Read in clean data
+
+To ensure that the data is read in correctly, the `.csv` file that was created previously is read in using the `read_csv` command. This way a tibble is created where the column specification is as basic as possible. This helps to avoid unnecessary factor conversions.
+
+**Note:** Exclude Bd21-3 filler plants?
+
+```{r}
+ril_phenotypes <- read_csv("../../data/processed/ril_phenotypes/ril_phenotypic_data.csv")
+```
+
+Reorder the `nitrate_level`.
+
+```{r}
+ril_phenotypes <- ril_phenotypes %>%
+  mutate(nitrate_level = factor(nitrate_level, levels = c("LN", "HN")))
+```
+
+### Branching HN/LN
+```{r}
+ril_phenotypes %>%
+  group_by(nitrate_level, ril_id) %>% 
+  select(batch, id, ril_id, nitrate_level, z68_shoots) %>% 
+  filter(!is.na(z68_shoots)) %>% 
+  summarise(n = n(),
+            avg_branching = mean(z68_shoots)) %>% 
+  
+  ggplot(., aes(x = fct_reorder(ril_id, avg_branching), y = avg_branching, colour = nitrate_level)) +
+    labs(title = "Tiller number",
+         x = "Genotype (reordered)", 
+         y = "Tiller number") +
+  expand_limits(y = 0) +
+  geom_jitter() +
+  geom_errorbar(aes(ymin = avg_branching, ymax = avg_branching), width = 0.1) +
+  geom_point(data = . %>%  filter(ril_id == "Bd3-1"), colour = "magenta", size = 3, alpha = 0.7) +
+  geom_point(data = . %>%  filter(ril_id == "Bd21"), colour = "royalblue3", size = 3, alpha = 0.7) +
+  
+  theme(axis.text.x = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        legend.position = c(0.2, 0.9))
+
+ggsave("branching_HN_LN.pdf", width = 5, height = 5, useDingbats = FALSE)
+```
+
+### Branching plasticity
+```{r}
+ril_phenotypes %>%
+  group_by(nitrate_level, ril_id) %>% 
+  summarise(avg_z68_shoots = mean(z68_shoots)) %>% 
+  spread(nitrate_level, avg_z68_shoots) %>% 
+  mutate(plasticity = HN - LN) %>% 
+  filter(!is.na(plasticity)) %>% 
+  ungroup() %>% 
+  group_by(ril_id) %>%
+  summarise(n = n(),
+            avg_plasticity = mean(plasticity)) %>% 
+  
+  ggplot(., aes(x = fct_reorder(ril_id, avg_plasticity), y = avg_plasticity )) +
+  labs(title = "Branching plasticity (HN - LN)",
+       x = "Genotype (reordered)", 
+       y = "Branching plasticity") +
+  expand_limits(y = 0) +
+  geom_jitter() +
+  geom_point(data = . %>%  filter(ril_id == "Bd3-1"), colour = "magenta", size = 3, alpha = 0.7) +
+  geom_point(data = . %>%  filter(ril_id == "Bd21"), colour = "royalblue3", size = 3, alpha = 0.7) +
+  
+  theme(axis.text.x = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        legend.position = c(0.2, 0.9))
+
+ggsave("branching_plasticity.pdf", width = 5, height = 5, useDingbats = FALSE)
+```
+
+### Reaction-norm plots parental lines
+```{r, message = FALSE, warning = FALSE}
+ril_phenotypes %>% 
+  filter(ril_id %in% c("Bd3-1", "Bd21")) %>% 
+  group_by(ril_id, nitrate_level) %>% 
+  filter(!is.na(seed_weight_g)) %>% 
+  summarise(n = n(),
+            avg_trait = mean(seed_weight_g),
+            sd = sd(seed_weight_g),
+            se = sd / sqrt(n),
+            ci = 2 * se) %>%
+  
+  ggplot(aes(x = nitrate_level, y = avg_trait, group = ril_id, colour = ril_id)) +
+  labs(title = "Seed weight per plant (g)",
+       x = "Nitrate level") +
+  expand_limits(y = 0) +
+  geom_point() +
+  geom_errorbar(aes(ymin = avg_trait - ci, ymax = avg_trait + ci), width = 0.1) +
+  geom_line() +
+  facet_wrap(. ~ ril_id) +
+  
+    theme(legend.position = "none",
+          axis.title.y = element_blank(),
+          panel.grid.major.x = element_blank(),
+          panel.grid.major.y = element_blank())
+
+ggsave("response_seed_weight.pdf", width = 3, height = 3, useDingbats = FALSE)
+```
