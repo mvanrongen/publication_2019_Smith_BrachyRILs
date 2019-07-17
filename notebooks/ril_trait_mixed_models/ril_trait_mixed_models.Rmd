@@ -1,0 +1,640 @@
+---
+title: "Mixed models to estimate trait variance components"
+author: "Hugo Tavares"
+date: "2019-06-18"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 4
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r libraries, message = FALSE, warning = FALSE}
+# load libraries
+library(tidyverse)
+library(rsample)
+library(broom)
+library(lme4)
+
+# change ggplot2 defaults
+theme_set(theme_bw())
+```
+
+```{r functions}
+#' Fit several relevant models to our data
+#'
+#' @param model_data a data.frame containing the data to be used in the model
+#' @param trait a character vector containing the trait to be used as outcome variable
+fit_lmms <- function(model_data, trait){
+  
+  if(!(trait %in% names(model_data))) stop("Trait does not exist")
+  
+  # define trait column
+  model_data$trait <- model_data[[trait]]
+  
+  # check and remove missing values
+  if(any(is.na(model_data$trait))){
+    warning("There's missing values in the trait. They will be removed.\n")
+    model_data <- model_data %>% drop_na(trait)
+  }
+  
+  # fit and return models
+  lmm_fits <- with(model_data,
+                 list(
+                   n_ril_int_batch = lmer(trait ~ nitrate_level  + (nitrate_level|ril_id) + (1|batch)),
+                   n_ril_int = lmer(trait ~ nitrate_level  + (nitrate_level|ril_id)),
+                   n_ril_batch = lmer(trait ~ nitrate_level  + (1|ril_id) + (1|batch)),
+                   n_ril = lmer(trait ~ nitrate_level  + (1|ril_id)),
+                   n_batch = lmer(trait ~ nitrate_level + (1|batch)),
+                   ril = lmer(trait ~ (1|ril_id)),
+                   n = lm(trait ~ nitrate_level),
+                   lm_fit = lm(trait ~ nitrate_level*ril_id)
+                 ))
+  return(lmm_fits)
+}
+```
+
+
+# Summary
+
+In this document we explore ways to model our data, in order to account for different 
+levels of variation (batch, nitrate, ril, etc...), using linear mixed models. 
+
+For assessing models we use both information criteria and an out-of-sample approach 
+to assess the model's predictive ability in new data. 
+
+This document is for reference, while the final model fitting is done in a non-interactive 
+script.
+
+The analysis done here suggests the following model choices:
+
+* `z68_shoots` --> use HN only to estimate heritabilities (no variance on LN)
+* `flowering_time` --> use model without GxE interaction (no variance in slopes); 
+possibly include batch effect (although this will not allow out-of-sample prediction)
+
+There is a final section that estimates heritabilities from these models.
+
+**Notes:**
+
+* All model explorations assumed data are generated from a gaussian process. 
+Do we want to explore other possibilities?
+
+
+# Prepare data
+
+We read the individual data, and then split it in 2: 
+
+* A test set, which is composed of data from batches 1 & 2. These batches were scored 
+by a different person and therefore can be used to assess predictive performance 
+of our models in new data. These data will not be touched at all until the very end.
+* Training set will be used to play around with.
+
+```{r}
+# read original data - column types are explicitly defined
+all_phenotypes <- read_csv("../../data/processed/ril_phenotypes/ril_phenotypic_data.csv",
+                           col_types = cols(
+                             .default = col_double(),
+                             sheet = col_character(),
+                             identifier = col_character(),
+                             block = col_character(),
+                             shelf = col_character(),
+                             nitrate_level = col_factor(levels = c("LN", "HN")),
+                             id = col_character(),
+                             batch = col_factor(),
+                             position_grid_location = col_character(),
+                             ril_id = col_character(),
+                             sow_date = col_date(format = "%Y-%m-%d"),
+                             z68_date = col_date(format = "%Y-%m-%d"),
+                             senescence_date = col_date(format = "%Y-%m-%d")
+                           )) %>% 
+  # exclude filler line
+  filter(ril_id != "Bd21-3") %>% 
+  # retain only lines that have data in both nitrate treatments
+  group_by(ril_id) %>% 
+  filter(n_distinct(nitrate_level) == 2) %>% 
+  ungroup()
+
+# Split data into:
+# test - will not be touched on until the end
+# training - will be used to play around with different models
+test <- all_phenotypes %>% filter(batch %in% c("1", "2"))
+training <- all_phenotypes %>% filter(!(batch %in% c("1", "2")))
+```
+
+
+# Fitting LMM
+
+We will fit the following mixed model:
+
+$Y_{ij} = \beta_0 + \beta_1 NITRATE + u_{0j} + u_{1j} + \epsilon_{ij}$
+
+Where:
+
+* Yij - is the trait for individual `i` from RIL ID `j`
+* beta0 - is the intercept term (average on LN)
+* beta1 - is the response to nitrate (average difference between HN and LN)
+* u0j - is the random term accounting for variation of means on LN for each RIL
+* u1j - is the random term accounting for variation of responses to HN for each RIL (i.e. the GxE component)
+
+
+## Branches
+
+First let's get a clean dataset for the model
+
+```{r}
+# Clean data for model
+model_data <- training %>% 
+  # select variables of interest
+  select(batch, nitrate_level, ril_id, z68_shoots) %>% 
+  # remove missing values
+  drop_na()
+
+# Create table that will be used to get model predictions
+model_pred <- model_data %>% 
+  distinct(ril_id, nitrate_level)
+```
+
+We fit a regular linear model, which essentially gives us average per group. 
+We can use this to have a first look at our residuals to check properties of the 
+distribution.
+
+```{r}
+# fit model
+lm_fit <- lm(z68_shoots ~ nitrate_level * ril_id, data = model_data)
+
+# get preditions
+model_pred$lm_pred <- predict(lm_fit, newdata = model_pred)
+
+# plot of residuals
+augment(lm_fit, model_data) %>% 
+  ggplot(aes(.fitted, .resid, colour = nitrate_level)) +
+  geom_point()
+```
+
+We can see that there's a point that is an extreme outlier:
+
+```{r}
+augment(lm_fit, model_data) %>% 
+  arrange(desc(.resid)) %>% slice(1)
+```
+
+Wow, 35 branches?! Its siblings (including one from the same batch) seem to be ~10 branches. 
+Scoring error? 
+
+```{r}
+training %>% 
+  filter(ril_id == "RIL051" & nitrate_level == "HN") %>% 
+  select(ril_id, batch, nitrate_level, z68_shoots, flowering_time) %>% 
+  mutate(z68_shoots = (z68_shoots - mean(z68_shoots))/sd(z68_shoots))
+```
+
+Now let's fit the LMM:
+
+```{r}
+# fit model
+lmm_fit <- lmer(z68_shoots ~ nitrate_level  + (nitrate_level|ril_id), data = model_data)
+
+# add predictions
+model_pred$lmm_pred <- predict(lmm_fit, newdata = model_pred)
+
+# plot of residuals
+augment(lmm_fit, model_data) %>% 
+  ggplot(aes(.fitted, .resid, colour = nitrate_level)) +
+  geom_point()
+```
+
+Two problems: a warning about singular fit and there was some severe shrinkage here 
+for the lower values. 
+
+```{r}
+summary(lmm_fit)
+```
+
+Basically, the model is predicting no variance on LN (intercept)! 
+Let's compare the two model predictions.
+
+```{r}
+model_pred %>% 
+  mutate(i = rank(lm_pred)) %>% 
+  ggplot(aes(i)) + 
+  geom_point(aes(y = lm_pred, colour = "LM")) +
+  geom_point(aes(y = lmm_pred, colour = "LMM"))
+```
+
+I think another way to put it is that the model assumes that the variance on LN 
+could just be explained by the residual ("error") variance.
+
+We can see this in the data itself, if we calculate the within-RIL variance 
+it is bigger than the between-RIL variance and very close to zero
+(note different y-axis scales in panels below):
+
+```{r}
+model_data %>% 
+  # calculate mean and variance for each ril on each N
+  group_by(ril_id, nitrate_level) %>% 
+  summarise(mean = mean(z68_shoots), var = var(z68_shoots)) %>%
+  # plot distribution of within-ril variance
+  ggplot(aes(nitrate_level, var)) +
+  geom_boxplot() +
+  # add a point with variance in ril means
+  geom_point(aes(y = mean), stat = "summary", fun.y = "var", 
+             size = 5, colour = "brown") +
+  facet_wrap(~ nitrate_level, scales = "free")
+```
+
+In other words, it basically predicts that there is no genetic variability for shoot branching on LN. 
+All variance is on HN (which indirectly means variance in genetic plasticity). 
+
+Here's the reaction norm graphs from the model predictions, where the shrinkage 
+from the mixed model is very obvious on LN:
+
+```{r}
+model_pred %>% 
+  gather("type", "value", lm_pred, lmm_pred) %>% 
+  mutate(model = factor(interaction(type, nitrate_level), 
+                        levels = c("lm_pred.LN", "lmm_pred.LN", "lmm_pred.HN", "lm_pred.HN"))) %>% 
+  ggplot(aes(interaction(type, nitrate_level), value)) +
+  geom_line(aes(group = ril_id), alpha = 0.1)
+```
+
+This basically means that doing QTL for GxE effects is useless, all we need to 
+do is QTL on HN. 
+
+We haven't touched on the issue of the assumption that data are generated from a 
+normal distribution. Need to look into this at some point.
+
+
+### Comparing models
+
+Given this preliminary analysis, let's investigate how other sources of variation 
+might have a role here. We will consider the following models:
+
+* With added effect of batch
+* Without GxE interaction
+* Without RIL
+
+
+```{r}
+# use function defined at the begining to fit several models
+shoot_fits <- fit_lmms(training, "z68_shoots")
+```
+
+Note that for the two-way interaction term (with random slopes per batch), 
+the model struggles to converge, probably because we run out of degrees of freedom. 
+
+Let's get AIC to assess model's performance:
+
+```{r}
+shoot_AICs <- shoot_fits %>% 
+  map_dbl(AIC) %>% 
+  sort() %>% 
+  enframe(name = "model", value = "AIC") %>% 
+  mutate(dAIC = AIC - min(AIC)) %>% 
+  mutate(model = fct_reorder(model, AIC))
+shoot_AICs
+```
+
+It seems like including batch in the model leads to some improvement in out-of-sample 
+prediction, although the delta-AIC is relatively low compared with the GxE model 
+that excludes it (`n_ril_int`).
+
+
+### Using cross-validation to assess model accuracy
+
+This is computationally expensive, but it's done to complement the analysis of AIC 
+values shown above.
+
+```{r}
+# Function to run cross-validation
+# not sure this is correct as we don't get same levels in the two split sets
+compare_models <- function(split, trait = "z68_shoots", model_formula){
+  
+  # training data
+  training <- analysis(split)
+  
+  # validation data
+  validation <- assessment(split) %>% 
+    # retain only RILs with data in the training set
+    filter(ril_id %in% training$ril_id)
+  
+  # get the relevant trait
+  if(!(trait %in% names(training))) stop("Trait does not exist")
+  training$trait <- training[[trait]]
+  validation$trait <- validation[[trait]]
+
+  # fit model
+  fit <- lmer(as.formula(model_formula), data = training)
+  
+  # get correlation as measure of model accuracy
+  cor(predict(fit, validation), validation$trait)
+}
+
+# Get accuracy distribution across cross-validation runs
+lmm_fits_cv <- model_data %>% 
+  rsample::mc_cv(prop = 0.5, times = 200, strat = "ril_id") %>% 
+  mutate(n_ril_int_batch = map_dbl(splits, compare_models, 
+                                   model_formula = "trait ~ nitrate_level  + (nitrate_level|ril_id) + (1|batch)"),
+         n_ril_int = map_dbl(splits, compare_models, 
+                             model_formula = "trait ~ nitrate_level  + (nitrate_level|ril_id)"),
+         n_ril_batch = map_dbl(splits, compare_models, 
+                               model_formula = "trait ~ nitrate_level  + (1|ril_id) + (1|batch)"),
+         n_ril = map_dbl(splits, compare_models, 
+                         model_formula = "trait ~ nitrate_level  + (1|ril_id)"),
+         n_batch = map_dbl(splits, compare_models, 
+                           model_formula = "trait ~ nitrate_level  + (1|batch)")) 
+
+# plot model accuracy metric
+lmm_fits_cv %>% 
+  gather("model", "accuracy", full:nobatch) %>% 
+  left_join(shoot_AICs, by = "model") %>% 
+  mutate(model = fct_reorder(model, dAIC)) %>% 
+  ggplot(aes(model, statistic)) + 
+  geom_violin() + geom_boxplot(width = 0.1) +
+  geom_text(aes(y = 0.84, label = round(dAIC)))
+```
+
+The accuracy (correlation between predicted and observed values) is >0.85 for 
+basically all these models. 
+It's interesting to see that accounting for batch (`n_ril_batch`) gives slightly better 
+accuracy than the GxE interaction without batch (`n_ril_int`). 
+
+Given that adding batch seems to explain a lot, let's have a look at this:
+
+```{r}
+model_data %>% 
+  group_by(ril_id, batch, nitrate_level) %>% 
+  summarise(trait = mean(z68_shoots)) %>% 
+  ggplot(aes(interaction(batch, nitrate_level), trait)) + 
+  geom_line(aes(group = ril_id), alpha = 0.2) +
+  geom_point(stat = "summary", fun.y = "mean", colour = "brown", size = 3)
+```
+
+There's a lot of zig-zagging around. 
+A bit of a "spagetti plot", perhaps not all that informative... 
+
+Note that batch variance only accounts for <3% of the total variance, 
+with most variance being on HN and the rest residual. 
+
+```{r}
+VarCorr(shoot_fits$n_ril_int_batch) %>% 
+  as.data.frame() %>% 
+  filter(is.na(var2)) %>% 
+  mutate(pct_var = vcov/sum(vcov)*100)
+```
+
+
+Based on above analysis of AIC and cross-validation, we conclude that biologically 
+it makes more sense to fit the GxE model and ignore the batch effect.
+(in some ways, we need to ignore batch effect if we want to test the model in the 
+test data, which includes batches 1 & 2, which are absent from the training data.)
+
+Given that there's no variance on LN, indeed it would only make sense to fit a 
+model to HN data alone:
+
+```{r}
+# add this model to the list of models
+shoot_fits$hn_fit <- lmer(z68_shoots ~ (1|ril_id), data = training %>% filter(nitrate_level == "HN"))
+```
+
+
+
+## flowering
+
+We go a bit faster here, let's fit the battery of models for this trait:
+
+```{r}
+flower_fits <- fit_lmms(training, "flowering_time")
+
+# re-define clean table to use for getting model predictions
+model_pred <- training %>% distinct(ril_id, nitrate_level)
+```
+
+First, let's look at the more "biologically relevant" GxE model:
+
+```{r}
+summary(flower_fits$n_ril_int)
+```
+
+Here we get another warning, and this is because the predicted correlation between 
+LN and GxE is essentially 1! The variance in slopes is essentially zero also, 
+in other others there's basically no GxE, we can predict flowering on HN from 
+flowering on LN:
+
+```{r}
+model_pred %>% 
+  mutate(pred = predict(flower_fits$n_ril_int, model_pred)) %>% 
+  spread(nitrate_level, pred) %>% 
+  ggplot(aes(LN, HN)) + geom_point()
+```
+
+Humm... really? Let's look at this a bit more.
+
+```{r}
+model_pred %>% 
+  mutate(pred = predict(flower_fits$n_ril_int, model_pred),
+         mean = predict(flower_fits$lm_fit, model_pred)) %>% 
+  gather("model", "prediction", pred, mean) %>% 
+  mutate(x = factor(interaction(model, nitrate_level), 
+                    levels = c("mean.LN", "pred.LN", "pred.HN", "mean.HN"))) %>% 
+  ggplot(aes(x, prediction)) +
+  geom_line(aes(group = ril_id), alpha = 0.5)
+```
+
+There seems to be quite a bit of shrinkage for some individuals. For example, 
+the individual with second highest flowering on LN gets estimate shrunken a lot 
+towards the mean. Why is this?
+
+```{r}
+model_pred %>% 
+  mutate(pred = predict(flower_fits$n_ril_int, model_pred),
+         mean = predict(flower_fits$lm_fit, model_pred)) %>% 
+  filter(nitrate_level == "LN") %>% 
+  arrange(-mean) %>% 
+  slice(2) %>% 
+  select(ril_id, nitrate_level) %>% 
+  left_join(training) %>% 
+  select(ril_id, nitrate_level, flowering_time)
+```
+
+OK, there's that massive outlier (51 days to flowering). Is this why? Actually, 
+if we colour this line in the graph above, we can see it's getting lots of 
+shrinkage towards the mean both on LN and HN:
+
+```{r}
+model_pred %>% 
+  mutate(pred = predict(flower_fits$n_ril_int, model_pred),
+         mean = predict(flower_fits$lm_fit, model_pred)) %>% 
+  gather("model", "prediction", pred, mean) %>% 
+  mutate(x = factor(interaction(model, nitrate_level), 
+                    levels = c("mean.LN", "pred.LN", "pred.HN", "mean.HN")),
+         target_ril = ril_id == "RIL130") %>% 
+  ggplot(aes(x, prediction)) +
+  geom_line(aes(group = ril_id, colour = target_ril), alpha = 0.5)
+```
+
+OK, I think what's happening is that the model sees that most lines increase their 
+flowering between LN and HN. So, when it sees such an outlier with LN > HN), it 
+wants to be conservative and say that maybe that's not real. And so the way it 
+"fixes" it is to shrink both estimates on LN an HN towards the overal mean, so that 
+the slope is in line with that observed for the bulk of the data.
+
+We can check the distribution of plasticity just using averages:
+
+```{r}
+model_pred %>% 
+  mutate(mean = predict(flower_fits$lm_fit, model_pred)) %>% 
+  spread(nitrate_level, mean) %>% 
+  mutate(plas = HN - LN) %>% 
+  ggplot(aes(plas)) + stat_ecdf()
+```
+
+Virtually all of the RILs have positive plasticity, so it kind of makes sense that 
+the model tried to shrink those estimates to have a positive plasticity. 
+
+In summary, for this trait, this exploration suggests that there is no GxE - all 
+lines increase, on average, the same amount when switching from LN to HN. 
+This means a model with no interaction may be as good as the model just shown. 
+
+Let's investigate this by looking at the AIC of those two models:
+
+```{r}
+AIC(flower_fits$n_ril_int, flower_fits$n_ril)
+```
+
+Basically same AIC, indicating no model improvement by including the GxE interaction. 
+
+Let's look at all models together:
+
+```{r}
+flower_fits %>% 
+  map_dbl(AIC) %>% 
+  sort() %>% 
+  enframe(name = "model", value = "AIC") %>% 
+  mutate(dAIC = AIC - min(AIC))
+```
+
+Here, there seems to be a substantial gain from including `batch` in the model
+(compare `n_ril` and `n_ril_batch`).
+
+Let's have a look at this:
+
+```{r}
+training %>% 
+  group_by(ril_id, batch, nitrate_level) %>% 
+  summarise(trait = mean(flowering_time)) %>% 
+  ggplot(aes(interaction(batch, nitrate_level), trait)) + 
+  geom_line(aes(group = ril_id), alpha = 0.2) +
+  geom_point(stat = "summary", fun.y = "mean", colour = "brown", size = 3)
+```
+
+Yep, definitely can see that batches 3&4 had on average lower flowering times 
+both on LN and HN (seasonal effects??). 
+
+
+# Heritabilities
+
+As heritability is defined as the proportion of variance due to genetic differences, 
+we can extract this from the models. 
+
+The proportion of variance due to random effects in linear mixed models is called 
+"Intraclass Correlation". In our case, as long as we use models without batch, 
+the intraclass correlation is the same as heritability. 
+
+We can easily get this using the `performance` package. 
+
+```{r}
+# Shoot branches
+performance::icc(shoot_fits$hn_fit)
+
+# Flowering
+performance::icc(flower_fits$n_ril)
+```
+
+But for flowering time we concluded that including batch may be a good idea, 
+so here's that calculation done "manually":
+
+```{r}
+flower_fits$n_ril_batch %>% 
+  VarCorr() %>% 
+  as.data.frame() %>% 
+  mutate(pct_var = vcov/sum(vcov))
+```
+
+We see that actually the variance in `ril_id` (i.e. heritability) is not actually 
+that different. That's because in the model without batch effect, the variance 
+due to batch is absorbed into the residual variance, whereas the variance due to 
+ril_id does not really change much:
+
+```{r}
+flower_fits$n_ril %>% 
+  VarCorr() %>% 
+  as.data.frame() %>% 
+  mutate(pct_var = vcov/sum(vcov))
+```
+
+
+## estimating confidence intervals
+
+We can estimate confidence intervals using a parametric bootstrap approach. In 
+other words, simulate data from the model and re-calculate the heritability. 
+
+Here's for shoot branching:
+
+```{r}
+shoot_fits$hn_fit %>% 
+  # simulated datasets
+  simulate(100) %>% 
+  # get ICC from each
+  map_dbl(function(i){
+    ids <- model.frame(shoot_fits$hn_fit)$ril_id
+    fit <- lmer(i ~ (1|ids))
+    performance::icc(fit)[[1]]
+  }) %>% 
+  quantile(probs = c(0.025, 0.5, 0.975))
+```
+
+And for flowering:
+
+```{r}
+flower_fits$n_ril %>% 
+  # simulated datasets
+  simulate(100) %>% 
+  # get ICC from each
+  map_dbl(function(i){
+    ids <- model.frame(flower_fits$n_ril)$ril_id
+    nitrate <- model.frame(flower_fits$n_ril)$nitrate_level
+    fit <- lmer(i ~ nitrate + (1|ids))
+    performance::icc(fit)[[1]]
+  }) %>% 
+  # estimate quantiles
+  quantile(probs = c(0.025, 0.5, 0.975))
+```
+
+Only used 100 simulations (in final analysis might want to do 1000), but this is 
+probably good enough. 
+
+
+# Testing other likelihood functions
+
+Up to now we assumed a gaussian (normal) likelihood for the data. 
+For shoot branches, which is count data, this is most certainly not accurate. 
+(of course "all models are wrong" anyway... we just want a good enough approximation)
+
+Some other likelihood that would make sense to use are:
+poisson, quasipoisson, negative binomial, ...
+
+But not sure how to extract variance components (and thus estimate heritabilities) 
+using other likelihood functions. 
+
+A rather technical paper on this: https://www.genetics.org/content/204/3/1281 
+
+And a post with some implementation using `brms` package: https://rpsychologist.com/GLMM-part1-lognormal 
+
+Although the `performance::icc()` function may do this for us as well. 
+
+

@@ -1,0 +1,209 @@
+---
+title: "Brachypodium QTL scans"
+author: "Hugo Tavares"
+date: "2019-06-17"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 4
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r, message = FALSE, warning = FALSE}
+# load libraries
+library(qtl2)
+library(tidyverse)
+
+# Custom function to add phenotypes to cross2 object
+source("https://gist.githubusercontent.com/tavareshugo/b10c3dca303c28b2d161e439a6ffcac6/raw/09df841ed6652d578c20efc62243e8a8e9a972f6/add_pheno.R")
+
+# change ggplot2 defaults
+theme_set(theme_bw())
+```
+
+
+## Summary
+
+This documents drafts the analysis routine used for QTL mapping. 
+The genotype data is imported using the `R/qtl2` package, which is used to infer genotype probabilities at evenly spaced (pseudo-)markers from the SNP data of Cui et al 2012.
+
+We then use two strategies for QTL mapping:
+
+* A simple QTL scan using averaged trait values.
+* Using a GxE mixed model for the QTL scan, using the non-summarised data.
+
+
+## Prepare `R/qtl2` data
+
+#### Download genotype data
+
+The genotype data from Cui et al 2012 was cleaned and formatted for analysis with the `R/qtl2` package. 
+See [this repository](https://github.com/tavareshugo/qtl2data/tree/master/brachy_Cui2012) for further details about pre-processing of these data. 
+The data can be downloaded from this repository as a compressed _.zip_ file, and read with the `qtl2::read_cross2()` function.
+
+```{r}
+# prepare directory structure
+if(!file.exists("../../data/external/")) dir.create("../../data/external", recursive = TRUE)
+
+# Download genotype data
+if(!file.exists("../../data/external/Cui2012_qtl2cross.zip")){
+  download.file("https://github.com/tavareshugo/qtl2data/raw/master/brachy_Cui2012/Cui2012_qtl2cross.zip",
+                destfile = "../../data/external/Cui2012_qtl2cross.zip",
+                method = "wget")
+}
+
+# read data as a cross2 object
+ril_cross <- read_cross2("../../data/external/Cui2012_qtl2cross.zip")
+```
+
+
+#### Prepare trait data
+
+We read the clean (processed) data and summarise per genotype/nitrate treatment
+
+```{r}
+# read original data
+ril_phenotypes <- read_csv("../../data/processed/ril_phenotypes/ril_phenotypic_data.csv")
+
+# Simple summary of data
+pheno <- ril_phenotypes %>% 
+  # retain only RILs
+  filter(str_detect(ril_id, "RIL")) %>% 
+  # summarise per nitrate and RIL
+  group_by(nitrate_level, ril_id) %>% 
+  summarise_at(vars(z68_shoots, z68_greenness, senescence_height, seed_weight_g, 
+                    lifespan, flowering_senescence_interval, flowering_time),
+               .funs = list(mean = ~ mean(., na.rm = TRUE),
+                            n = ~ sum(!is.na(.)),
+                            sd = ~ sd(., na.rm = TRUE))) %>% 
+  # remove grouping
+  ungroup()
+
+# Summarised data is also available from this file
+# but there are some differences from above summary, 
+# possibly because the table below is summarised per batch and then per ril/nitrate?
+# pheno <- read_csv("../../data/processed/ril_phenotypes/2019_05_28_averages_RILs.csv")
+
+# Get HN and LN into separate columns as well as plasticity
+pheno_summary <- pheno %>%
+  select(ril_id, nitrate_level, matches("_mean")) %>%
+  drop_na() %>%
+  group_by(ril_id) %>%
+  summarise_at(vars(matches("_mean")),
+               .funs = list(hn = ~ .[nitrate_level == "HN"],
+                            ln = ~ .[nitrate_level == "LN"],
+                            plas = ~ .[nitrate_level == "HN"] - .[nitrate_level == "LN"])) %>%
+  mutate_at(vars(matches("_mean")),
+            list(~ (. - mean(.))/sd(.)))
+```
+
+
+These data can now be added to our `cross2` object, to ensure consistency between 
+the genotypes on our data and the ones with genotype information:
+
+```{r}
+ril_cross <- add_pheno(ril_cross, pheno_summary)
+```
+
+
+#### Prepare map data
+
+Finally, we impute genotypes at even intervals (0.5cM), and then calculate genotype probabilities from the SNP data.
+
+```{r}
+# insert pseudo-markers for evenly spaced scan
+geno_map <- insert_pseudomarkers(ril_cross$gmap, step = 0.5)
+
+# calculate genotype probabilities - assume 1% error rate
+geno_prob <- calc_genoprob(ril_cross, geno_map, error_prob = 0.01, cores = 3)
+```
+
+
+
+## Simple QTL scan
+
+The simple QTL scan is straighforward, using `R/qtl2` functionality:
+
+```{r}
+# Run scan
+pheno_scan <- scan1(geno_prob, ril_cross$pheno, cores = 2)
+
+# Run permutations (takes a while)
+pheno_perm <- scan1perm(geno_prob, ril_cross$pheno, n_perm = 1000, cores = 3)
+```
+
+
+#### Visualise results
+
+Visualising the results can be done quickly using `R/qtl2` functions.
+
+```{r}
+# QTL scan for shoot branching
+plot_scan1(pheno_scan, geno_map, lodcolumn = "z68_shoots_mean_hn")
+
+# add genome-wide significance threshold
+abline(h = summary(pheno_perm)[, "z68_shoots_mean_hn"], lty = 2)
+```
+
+But it might be more convenient to "tidy" the data so that one can make custom plots more easily (e.g. with `ggplot2`).
+
+```{r}
+pheno_scan_df <- pheno_scan %>% 
+  # convert to tibble
+  as_tibble(rownames = "locus") %>% 
+  # gather all traits
+  gather("trait", "LOD", -locus) %>% 
+  # create variable with nitrate treatment
+  mutate(nitrate = toupper(str_remove(trait, ".*_")))
+
+# Join with genetic map data
+pheno_scan_df <- geno_map %>% 
+  # turn into tibble
+  map(enframe, name = "locus", value = "pos") %>% 
+  # bind
+  bind_rows(.id = "chrom") %>% 
+  # join with scan
+  left_join(pheno_scan_df, by = "locus")
+
+# Tidy permutations
+pheno_perm_df <- pheno_perm %>% 
+  # get thresholds
+  summary(alpha = c(0.1, 0.05, 0.01)) %>% 
+  # convert to tibble
+  as_tibble(rownames = "threshold") %>% 
+  # gather traits
+  gather("trait", "value", -threshold) %>% 
+  # create variable with nitrate treatment
+  mutate(nitrate = toupper(str_remove(trait, ".*_")))
+```
+
+```{r}
+pheno_scan_df %>% 
+  filter(str_detect(trait, "z68_shoots_mean")) %>% 
+  ggplot(aes(pos, LOD)) +
+  geom_line() +
+  geom_hline(data = pheno_perm_df %>% filter(str_detect(trait, "z68_shoots_mean") & threshold == "0.05"),
+             aes(yintercept = value), linetype = 2) +
+  facet_grid(nitrate ~ chrom, scales = "free_x", space = "free_x") +
+  scale_x_continuous(breaks = seq(0, 500, 100)) +
+  labs(x = "Position (cM)")
+```
+
+There is also a convenience function to help us find peaks:
+
+```{r}
+# using threshold of 3, as that seems to be consistent across traits from permutation test
+find_peaks(pheno_scan, geno_map, threshold = 3)
+```
+
+
+## Mixed model QTL scans
+
+An alternative way to run the QTL scans is to model all the data together at once. 
+
+... to do ...
