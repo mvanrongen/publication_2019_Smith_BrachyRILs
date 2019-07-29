@@ -47,6 +47,7 @@ fit_lmms <- function(model_data, trait){
   lmm_fits <- with(model_data,
                  list(
                    n_ril_int_batch = lmer(trait ~ nitrate_level  + (nitrate_level|ril_id) + (1|batch)),
+                   n_ril_int_batch_intn = lmer(trait ~ nitrate_level  + (nitrate_level|ril_id) + (nitrate_level|batch)),
                    n_ril_int = lmer(trait ~ nitrate_level  + (nitrate_level|ril_id)),
                    n_ril_batch = lmer(trait ~ nitrate_level  + (1|ril_id) + (1|batch)),
                    n_ril = lmer(trait ~ nitrate_level  + (1|ril_id)),
@@ -167,6 +168,7 @@ distribution.
 # fit model
 lm_fit <- lm(z68_shoots ~ nitrate_level * ril_id, data = model_data)
 
+summary(lm_fit)
 # get preditions
 model_pred$lm_pred <- predict(lm_fit, newdata = model_pred)
 
@@ -258,7 +260,7 @@ model_pred %>%
   gather("type", "value", lm_pred, lmm_pred) %>% 
   mutate(model = factor(interaction(type, nitrate_level), 
                         levels = c("lm_pred.LN", "lmm_pred.LN", "lmm_pred.HN", "lm_pred.HN"))) %>% 
-  ggplot(aes(interaction(type, nitrate_level), value)) +
+  ggplot(aes(model, value)) +
   geom_line(aes(group = ril_id), alpha = 0.1)
 ```
 
@@ -363,7 +365,7 @@ basically all these models.
 It's interesting to see that accounting for batch (`n_ril_batch`) gives slightly better 
 accuracy than the GxE interaction without batch (`n_ril_int`). 
 
-Given that adding batch seems to explain a lot, let's have a look at this:
+Given that adding batch seems to explain a bit, let's have a look at this:
 
 ```{r}
 model_data %>% 
@@ -398,7 +400,12 @@ model to HN data alone:
 
 ```{r}
 # add this model to the list of models
-shoot_fits$hn_fit <- lmer(z68_shoots ~ (1|ril_id), data = training %>% filter(nitrate_level == "HN"))
+shoot_fits$hn_fit <- lmer(z68_shoots ~ (1|ril_id), 
+                          data = training %>% filter(nitrate_level == "HN"))
+
+# add this model to the list of models
+shoot_fits$hn_batch_fit <- lmer(z68_shoots ~ (1|ril_id) + (1|batch), 
+                          data = training %>% filter(nitrate_level == "HN"))
 ```
 
 
