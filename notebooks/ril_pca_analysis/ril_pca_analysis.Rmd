@@ -21,6 +21,7 @@ library(tidyverse)
 library(visdat)
 library(ggfortify)
 library(broom)
+library(corrr)
 theme_set(theme_bw())
 scale_colour_discrete <- function(...) scale_color_brewer(palette = "Dark2")
 scale_fill_discrete <- function(...) scale_fill_brewer(palette = "Dark2")
@@ -96,7 +97,7 @@ access from object
 str(pca_data_num)
 
 # This gives the values of the PC
-pca_data_num$x
+#pca_data_num$x
 
 # Bind the PC values to the original data set
 bind_cols(pca_data, as_tibble(pca_data_num$x)) %>%
@@ -195,6 +196,19 @@ ggplot(trait_loadings) +
   scale_x_continuous(expand = c(0.5, 0.03))
 ```
 
+### PC1 as trait, response to nitrate
+
+```{r}
+pc_scores %>% 
+  select(ril_id, nitrate_level, PC1) %>% 
+  spread(nitrate_level, -ril_id) %>% 
+  
+  ggplot(aes(x = LN, y = HN)) +
+  geom_point() +
+  geom_smooth(method = "lm", colour = "black", size = .5)
+```
+
+The Pearson's correlation coefficient is `r pc_scores %>% select(ril_id, nitrate_level, PC1) %>% spread(nitrate_level, -ril_id) %>% select(-ril_id) %>% correlate() %>% slice(1) %>% select(HN) %>% as_vector()`.
 
 
 > Plot PC2 vs PC3 and see if you can find out what determines/separates them
