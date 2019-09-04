@@ -122,6 +122,81 @@ tidy(pca_data_num, matrix = "pcs") %>%
 tidy(pca_data_num, matrix = "variables")
 ```
 
+### PCA plot `ggplot`
+
+```{r}
+# Create a matrix
+pca_data <- ril_phenotypes %>%
+  mutate(batch = as.factor(batch)) %>% 
+  select(nitrate_level,
+         batch,
+         ril_id,
+         z68_shoots,
+         z68_greenness,
+         flowering_time,
+         flowering_senescence_interval,
+         senescence_height,
+         seed_weight_g,
+         lifespan) %>%
+  drop_na() %>% 
+  group_by(nitrate_level, ril_id) %>% 
+    summarise_at(vars(z68_shoots, z68_greenness, senescence_height, seed_weight_g, 
+                    lifespan, flowering_senescence_interval, flowering_time),
+               .funs = list(mean = ~ mean(., na.rm = TRUE))) %>% 
+  unite("id", ril_id, nitrate_level, sep = "_")
+
+
+pca_matrix <- pca_data %>% 
+  select(-id) %>% 
+  as.matrix()
+
+rownames(pca_matrix) <- pca_data$id
+
+# Perform the PCA
+sample_pca <- prcomp(pca_matrix)
+
+# Convert PCA matrix to tibble
+pca_matrix <- pca_matrix %>% 
+  as_tibble(rownames = "id") %>% 
+  separate(id, c("ril_id", "nitrate_level"), sep = "_") %>%
+  mutate(nitrate_level = factor(nitrate_level, levels = c("LN", "HN")))
+
+# The PC scores are stored in the "x" value of the prcomp object, which is a matrix
+pc_scores <- sample_pca$x %>%
+  as_tibble(rownames = "id") %>% 
+  separate(id, c("ril_id", "nitrate_level"), sep = "_") %>%
+  mutate(nitrate_level = factor(nitrate_level, levels = c("LN", "HN")))
+
+# Make PCA plot
+pc_scores %>% 
+  ggplot(aes(x = PC1, y = PC2, colour = nitrate_level)) +
+  geom_point()
+
+# PCA plot, connecting individual RILs
+pc_scores %>% 
+  ggplot(aes(x = PC1, y = PC2, colour = nitrate_level)) +
+  geom_point() +
+  geom_line(aes(group = interaction(ril_id)), colour = "black", alpha = 0.1)
+```
+
+### Trait loadings
+
+```{r}
+trait_loadings <- sample_pca$rotation %>% 
+  as_tibble(rownames = "id")
+
+ggplot(trait_loadings) +
+  geom_segment(aes(x = 0, y = 0, xend = PC1, yend = PC2), 
+               arrow = arrow(length = unit(0.1, "in")),
+               colour = "brown") +
+  geom_text(data = trait_loadings, 
+            aes(x = PC1, y = PC2, label = id),
+            nudge_y = 0.005, size = 3) +
+  scale_x_continuous(expand = c(0.5, 0.03))
+```
+
+
+
 > Plot PC2 vs PC3 and see if you can find out what determines/separates them
 
 > PCA, colour by nitrate, do the points separate

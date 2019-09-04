@@ -29,7 +29,7 @@ Read in the data.
 
 ```{r}
 
-path <- file.path(... = "../../data/raw/2019_06_07_all_RIL_data_reworked.xlsx")
+path <- file.path(... = "../../data/raw/2019_08_18_all_RIL_data_reworked.xlsx")
 
 ril_phenotypes <- path %>%
   excel_sheets() %>%
@@ -105,8 +105,6 @@ ril_phenotypes %>%
 
 As expected, the Bd21-3 genotype occurs many times in each batch, since it is used as a filler.
 All other filtered genotypes occur twice.
-
-Manually checked if the genotypes in batch 3 corresponded with those mentioned in the Excel file and they do.
 
 ### ID column
 
@@ -209,7 +207,7 @@ ril_phenotypes %>%
 
 **Comments**
 
-A total of `r ril_phenotypes %>% filter(is.na(z68_shoots)) %>% count()` samples are missing a measurement for `z68_shoots`. Remove these.
+A total of `r ril_phenotypes %>% filter(is.na(z68_shoots)) %>% count()` sample(s) are missing a measurement for `z68_shoots`. Remove these.
 
 ```{r}
 ril_phenotypes <- ril_phenotypes %>% 
@@ -391,7 +389,7 @@ ril_phenotypes %>%
 
 **Comments**
 
-> Check these
+They appear reasonable. No strange values.
 
 ### Batches
 
@@ -412,6 +410,24 @@ Export the table in CSV format (into the /data directory).
 
 ```{r}
 write_csv(ril_phenotypes, path = "../../data/processed/ril_phenotypes/ril_phenotypic_data.csv", na = "")
+```
+
+### Summary table for QTL mapping
+
+Create summary table for QTL mapping
+
+```{r}
+ril_phenotypes %>% 
+  group_by(ril_id, nitrate_level) %>%
+  select(z68_shoots,
+         z68_greenness,
+         flowering_time,
+         flowering_senescence_interval,
+         lifespan,
+         senescence_height,
+         seed_weight_g) %>% 
+  summarise_all(list(min = min, max = max, mean = mean), na.rm = TRUE) %>% 
+  write_csv(path = "../../data/processed/ril_phenotypes/ril_phenotypes_averages.csv", na = "")
 ```
 
 ## Cleaned data

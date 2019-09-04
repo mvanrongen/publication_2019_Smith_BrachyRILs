@@ -59,7 +59,7 @@ ggplot(., aes(x = flowering_time, y = z68_shoots, colour = nitrate_level)) +
   geom_jitter() +
   geom_point(data = . %>%  filter(ril_id == "Bd3-1"), colour = "magenta", size = 3, alpha = 0.7) +
   geom_point(data = . %>%  filter(ril_id == "Bd21"), colour = "royalblue3", size = 3, alpha = 0.7) +
-  geom_point(data = . %>%  filter(ril_id == "Bd21-3"), colour = "orange", alpha = 0.3) +
+  #geom_point(data = . %>%  filter(ril_id == "Bd21-3"), colour = "orange", alpha = 0.3) +
   facet_wrap(. ~ batch, ncol = 4)
 ```
 
@@ -83,7 +83,7 @@ ggplot(., aes(x = flowering_time, y = z68_shoots, colour = nitrate_level)) +
   geom_smooth(method = "lm", colour = "black", size = .5) +
   geom_point(data = . %>%  filter(ril_id == "Bd3-1"), colour = "magenta", size = 3, alpha = 0.7) +
   geom_point(data = . %>%  filter(ril_id == "Bd21"), colour = "royalblue3", size = 3, alpha = 0.7) +
-  geom_point(data = . %>%  filter(ril_id == "Bd21-3"), colour = "orange", alpha = 0.5) +
+  #geom_point(data = . %>%  filter(ril_id == "Bd21-3"), colour = "orange", alpha = 0.5) +
   facet_wrap(. ~ nitrate_level) +
   
   theme(
@@ -108,7 +108,7 @@ ggplot(., aes(x = avg_flowering_time, y = avg_z68_shoots, colour = nitrate_level
   geom_smooth(method = "lm", colour = "black", size = .5) +
   geom_point(data = . %>%  filter(ril_id == "Bd3-1"), colour = "magenta", size = 3, alpha = 0.7) +
   geom_point(data = . %>%  filter(ril_id == "Bd21"), colour = "royalblue3", size = 3, alpha = 0.7) +
-  geom_point(data = . %>%  filter(ril_id == "Bd21-3"), colour = "orange", size = 3, alpha = 0.7) +
+  #geom_point(data = . %>%  filter(ril_id == "Bd21-3"), colour = "orange", size = 3, alpha = 0.7) +
   facet_wrap(. ~ nitrate_level) +
   
   theme(
@@ -141,6 +141,26 @@ ril_phenotypes %>%
   geom_point(data = . %>%  filter(ril_id == "Bd21"), colour = "royalblue3", size = 3, alpha = 0.7)
 
 ```
+
+Calculate pearson's correlation coefficient for `avg_plasticity_flowering_time` and `avg_plasticity_z68_shoots`.
+
+It's not very strong...
+
+```{r}
+ril_phenotypes %>%
+  group_by(nitrate_level, ril_id) %>% 
+  summarise(avg_z68_shoots = mean(z68_shoots),
+            avg_flowering_time = mean(flowering_time)) %>% 
+  gather(avg_z68_shoots:avg_flowering_time, key = "avg_trait", value = "measurement") %>% 
+  spread(nitrate_level, measurement) %>% 
+  mutate(plasticity = HN - LN) %>% 
+  select(-HN, -LN) %>% 
+  spread(avg_trait, plasticity) %>% 
+  rename_all(funs(str_replace(., "avg", "avg_plasticity"))) %>% 
+  select(-ril_id) %>% 
+  correlate()
+```
+
 
 ### Average flowering time and SPAD across all batches
 
@@ -248,7 +268,7 @@ ril_phenotypes %>%
   geom_errorbar(aes(ymin = avg_flowering_time_plasticity - ci, ymax = avg_flowering_time_plasticity + ci), width = 0.1) +
   geom_point(data = . %>%  filter(ril_id == "Bd3-1"), colour = "magenta", size = 3, alpha = 0.7) +
   geom_point(data = . %>%  filter(ril_id == "Bd21"), colour = "royalblue3", size = 3, alpha = 0.7) +
-  geom_point(data = . %>%  filter(ril_id == "Bd21-3"), colour = "orange", size = 3, alpha = 0.7) +
+  #geom_point(data = . %>%  filter(ril_id == "Bd21-3"), colour = "orange", size = 3, alpha = 0.7) +
   
   theme(axis.text.x = element_blank(),
         legend.position = "none")

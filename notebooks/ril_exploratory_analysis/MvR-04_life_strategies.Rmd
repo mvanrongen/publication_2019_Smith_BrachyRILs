@@ -91,6 +91,32 @@ ril_phenotypes %>%
 
 It does look like the overall life span of plants grown on LN is shorter than that of plants grown on HN. This trend is visible in most batches, but not so in batch 1.
 
+## Lifespan vs branching
+
+```{r}
+ril_phenotypes %>%
+  group_by(ril_id, nitrate_level) %>% 
+  filter(!is.na(z68_shoots) & !is.na(lifespan)) %>% 
+  summarise(avg_z68_shoots = mean(z68_shoots),
+         avg_lifespan = mean(lifespan)) %>% 
+
+ggplot(., aes(x = avg_lifespan, y = avg_z68_shoots, colour = nitrate_level)) +
+    labs(title = "Branch number vs lifespan", 
+       subtitle = "Mean per genotype by nitrate level", 
+       x = "Lifespan (days)", 
+       y = "Branches") +
+  geom_point() +
+  geom_smooth(method = "lm", colour = "black", size = .5) +
+  geom_point(data = . %>%  filter(ril_id == "Bd3-1"), colour = "magenta", size = 3, alpha = 0.7) +
+  geom_point(data = . %>%  filter(ril_id == "Bd21"), colour = "royalblue3", size = 3, alpha = 0.7) +
+  #geom_point(data = . %>%  filter(ril_id == "Bd21-3"), colour = "orange", alpha = 0.7) +
+  facet_wrap(. ~ nitrate_level) +
+  
+  theme(
+    legend.position = "none"
+  )
+```
+
 ## Life strategies
 
 How much time is each genotype spending in each life phase?
@@ -136,9 +162,35 @@ ril_phenotypes %>%
   geom_point() +
   geom_point(data = . %>%  filter(ril_id == "Bd3-1"), colour = "magenta", size = 3, alpha = 0.7) +
   geom_point(data = . %>%  filter(ril_id == "Bd21"), colour = "royalblue3", size = 3, alpha = 0.7) +
-  geom_point(data = . %>%  filter(ril_id == "Bd21-3"), colour = "orange", size = 3, alpha = 0.7) +
+  #geom_point(data = . %>%  filter(ril_id == "Bd21-3"), colour = "orange", size = 3, alpha = 0.7) +
   
   theme(axis.text.x = element_blank())
+```
+
+### Flowering time - senescence interval vs branching
+
+```{r}
+ril_phenotypes %>%
+  group_by(ril_id, nitrate_level) %>% 
+  filter(!is.na(z68_shoots) & !is.na(flowering_senescence_interval)) %>% 
+  summarise(avg_z68_shoots = mean(z68_shoots),
+         avg_flowering_senescence_interval = mean(flowering_senescence_interval)) %>% 
+
+ggplot(., aes(x = avg_flowering_senescence_interval, y = avg_z68_shoots, colour = nitrate_level)) +
+    labs(title = "Branch number vs flowering-senescence interval", 
+       subtitle = "Mean per genotype by nitrate level", 
+       x = "Flowering-senescence interval (days)", 
+       y = "Branches") +
+  geom_point() +
+  geom_smooth(method = "lm", colour = "black", size = .5) +
+  geom_point(data = . %>%  filter(ril_id == "Bd3-1"), colour = "magenta", size = 3, alpha = 0.7) +
+  geom_point(data = . %>%  filter(ril_id == "Bd21"), colour = "royalblue3", size = 3, alpha = 0.7) +
+  #geom_point(data = . %>%  filter(ril_id == "Bd21-3"), colour = "orange", alpha = 0.7) +
+  facet_wrap(. ~ nitrate_level) +
+  
+  theme(
+    legend.position = "none"
+  )
 ```
 
 ## Life stategies vs shoot branching plasticity

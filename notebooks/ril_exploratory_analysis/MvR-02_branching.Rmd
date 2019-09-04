@@ -59,7 +59,7 @@ ggplot(., aes(x = ril_id, y = z68_shoots, colour = nitrate_level)) +
   geom_point() +
   geom_point(data = . %>%  filter(ril_id == "Bd3-1"), colour = "magenta", size = 3, alpha = 0.7) +
   geom_point(data = . %>%  filter(ril_id == "Bd21"), colour = "royalblue3", size = 3, alpha = 0.7) +
-  geom_point(data = . %>%  filter(ril_id == "Bd21-3"), colour = "orange", alpha = 0.7) +
+  #geom_point(data = . %>%  filter(ril_id == "Bd21-3"), colour = "orange", alpha = 0.7) +
   facet_wrap(. ~ batch, ncol = 4) +
   
   theme(
@@ -89,7 +89,7 @@ ggplot(., aes(x = ril_id, y = z68_shoots, colour = nitrate_level)) +
   geom_point() +
   geom_point(data = . %>%  filter(ril_id == "Bd3-1"), colour = "magenta", size = 3, alpha = 0.7) +
   geom_point(data = . %>%  filter(ril_id == "Bd21"), colour = "royalblue3", size = 3, alpha = 0.7) +
-  geom_point(data = . %>%  filter(ril_id == "Bd21-3"), colour = "orange", alpha = 0.7) +
+  #geom_point(data = . %>%  filter(ril_id == "Bd21-3"), colour = "orange", alpha = 0.7) +
   facet_grid(nitrate_level ~ batch) +
   
   theme(legend.position = "none",
@@ -121,7 +121,7 @@ plot_df <- ril_phenotypes %>%
   geom_errorbar(aes(ymin = avg_branching - ci, ymax = avg_branching + ci), width = 0.1) +
   geom_point(data = . %>%  filter(ril_id == "Bd3-1"), colour = "magenta", size = 3, alpha = 0.7) +
   geom_point(data = . %>%  filter(ril_id == "Bd21"), colour = "royalblue3", size = 3, alpha = 0.7) +
-  geom_point(data = . %>%  filter(ril_id == "Bd21-3"), colour = "orange", size = 3, alpha = 0.7) +
+  #geom_point(data = . %>%  filter(ril_id == "Bd21-3"), colour = "orange", size = 3, alpha = 0.7) +
   
   theme(axis.text.x = element_blank(),
         legend.position = "none")
@@ -129,6 +129,7 @@ plot_df <- ril_phenotypes %>%
 
 plot_df$plots
 ```
+
 ### Branching HN/LN
 ```{r}
 ril_phenotypes %>%
@@ -139,8 +140,10 @@ ril_phenotypes %>%
             avg_branching = mean(z68_shoots)) %>% 
   
   ggplot(., aes(x = fct_reorder(ril_id, avg_branching), y = avg_branching, colour = nitrate_level)) +
-    labs(x = "Genotype (reordered)", 
-       y = "Tiller number") +
+      labs(title = "Branch number at z68 stage", 
+       subtitle = "Average per RIL", 
+       x = "Genotype (reordered)", 
+       y = "Branches") +
   expand_limits(y = 0) +
   geom_jitter() +
   geom_errorbar(aes(ymin = avg_branching, ymax = avg_branching), width = 0.1) +
@@ -150,10 +153,34 @@ ril_phenotypes %>%
   theme(axis.text.x = element_blank(),
         panel.grid.major.x = element_blank(),
         panel.grid.major.y = element_blank(),
-        legend.position = c(0.2, 0.9))
+        legend.position = c(0.1, 0.85))
 
 ```
 
+### Branching response HN-LN
+
+
+```{r}
+ril_phenotypes %>% 
+  filter(!is.na(z68_shoots)) %>% 
+  select(batch, ril_id, nitrate_level, z68_shoots) %>% 
+  group_by(ril_id, nitrate_level) %>% 
+  summarise(mean_z68_shoots = mean(z68_shoots)) %>% 
+  # Filter out values that have no paired observation
+  filter(n() > 1) %>% 
+  #filter(ril_id == "Bd3-1") %>% 
+  
+  ggplot(., aes(x = nitrate_level, y = mean_z68_shoots, label = ril_id)) +
+    labs(title = "Branching response to nitrate", 
+       subtitle = "Mean per genotype", 
+       x = "Nitrate level", 
+       y = "Branches") +
+  expand_limits(y = 0) +
+  geom_point(alpha = 0.3) +
+  geom_point(data = . %>%  filter(ril_id == "Bd3-1"), colour = "magenta", size = 3, alpha = 0.7) +
+  geom_point(data = . %>%  filter(ril_id == "Bd21"), colour = "royalblue3", size = 3, alpha = 0.7) +
+  geom_line(aes(group = ril_id), alpha = 0.3)
+```
 
 ## Branching plasticity
 
@@ -194,7 +221,7 @@ plots = ggplot(., aes(x = reorder(ril_id, plasticity), y = plasticity)) +
   geom_jitter() +
   geom_point(data = . %>%  filter(ril_id == "Bd3-1"), colour = "magenta", size = 3, alpha = 0.7) +
   geom_point(data = . %>%  filter(ril_id == "Bd21"), colour = "royalblue3", size = 3, alpha = 0.7) +
-  geom_point(data = . %>%  filter(ril_id == "Bd21-3"), colour = "orange", alpha = 0.7) +
+  #geom_point(data = . %>%  filter(ril_id == "Bd21-3"), colour = "orange", alpha = 0.7) +
   
   theme(axis.text.x = element_blank()))
 
@@ -310,7 +337,7 @@ ggplot(., aes(x = avg_lifespan, y = avg_z68_shoots, colour = nitrate_level)) +
   geom_smooth(method = "lm", colour = "black", size = .5) +
   geom_point(data = . %>%  filter(ril_id == "Bd3-1"), colour = "magenta", size = 3, alpha = 0.7) +
   geom_point(data = . %>%  filter(ril_id == "Bd21"), colour = "royalblue3", size = 3, alpha = 0.7) +
-  geom_point(data = . %>%  filter(ril_id == "Bd21-3"), colour = "orange", alpha = 0.7) +
+  #geom_point(data = . %>%  filter(ril_id == "Bd21-3"), colour = "orange", alpha = 0.7) +
   facet_wrap(. ~ nitrate_level)
 ```
 

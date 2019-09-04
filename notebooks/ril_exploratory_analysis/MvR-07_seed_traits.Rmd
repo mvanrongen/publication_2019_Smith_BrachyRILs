@@ -86,7 +86,7 @@ ril_phenotypes %>%
   geom_smooth(method = "lm", colour = "black", size = .5) +
     geom_point(data = . %>%  filter(ril_id == "Bd3-1"), colour = "magenta", size = 3, alpha = 0.7) +
   geom_point(data = . %>%  filter(ril_id == "Bd21"), colour = "royalblue3", size = 3, alpha = 0.7) +
-  geom_point(data = . %>%  filter(ril_id == "Bd21-3"), colour = "orange", size = 3, alpha = 0.7) +
+  #geom_point(data = . %>%  filter(ril_id == "Bd21-3"), colour = "orange", size = 3, alpha = 0.7) +
   facet_grid(. ~ nitrate_level) +
   
   theme(legend.position = "none")

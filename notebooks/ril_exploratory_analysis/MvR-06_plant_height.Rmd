@@ -114,7 +114,7 @@ ril_phenotypes %>%
   facet_grid(. ~ nitrate_level) +
   geom_point(data = . %>%  filter(ril_id == "Bd3-1"), colour = "magenta", size = 3, alpha = 0.7) +
   geom_point(data = . %>%  filter(ril_id == "Bd21"), colour = "royalblue3", size = 3, alpha = 0.7) +
-  geom_point(data = . %>%  filter(ril_id == "Bd21-3"), colour = "orange", size = 3, alpha = 0.7) +
+  #geom_point(data = . %>%  filter(ril_id == "Bd21-3"), colour = "orange", size = 3, alpha = 0.7) +
   
   theme(legend.position = "none",
         axis.text.x = element_blank())
@@ -135,7 +135,7 @@ Plotting this as a line plot. Note: many height measurements are missing for Bd2
 ```{r}
 ril_phenotypes %>% 
   filter(!is.na(senescence_height)) %>% 
-  filter(ril_id %in% c("Bd3-1", "Bd21", "Bd21-3")) %>% 
+  filter(ril_id %in% c("Bd3-1", "Bd21")) %>% 
   select(batch, id, ril_id, nitrate_level, senescence_height) %>% 
   group_by(batch, id) %>% 
   # Filter out values that have no paired observation
