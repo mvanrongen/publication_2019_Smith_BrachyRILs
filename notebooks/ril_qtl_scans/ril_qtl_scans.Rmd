@@ -130,54 +130,11 @@ geno_prob <- calc_genoprob(ril_cross, geno_map, error_prob = 0.01, cores = 3)
 The simple QTL scan is straighforward, using `R/qtl2` functionality:
 
 ```{r}
-head(ril_cross$pheno)
-```
-
-
-```{r}
 # Run scan
 pheno_scan <- scan1(geno_prob, ril_cross$pheno, cores = 2)
 
 # Run permutations (takes a while)
 pheno_perm <- scan1perm(geno_prob, ril_cross$pheno, n_perm = 1000, cores = 3)
-```
-
-### Run scan `z68_shoots` with `flowering_time` as co-variate
-
-```{r}
-pheno_scan_covar <- scan1(geno_prob, 
-                          pheno = ril_cross$pheno[, c("z68_shoots_mean_hn")], 
-                          addcovar = ril_cross$pheno[, c("flowering_time_mean_hn")], 
-                          cores = 2)
-
-# Run permutations with covariate
-pheno_covar_perm <- scan1perm(geno_prob, 
-                          pheno = ril_cross$pheno[, c("z68_shoots_mean_hn")], 
-                          addcovar = ril_cross$pheno[, c("flowering_time_mean_hn")], 
-                          n_perm = 1000,
-                          cores = 2)
-```
-
-```{r}
-pheno_scan_df %>% 
-  filter(str_detect(trait, "z68_shoots_mean")) %>% 
-  ggplot(aes(pos, LOD)) +
-  geom_line() +
-  geom_hline(data = pheno_perm_df %>% filter(str_detect(trait, "z68_shoots_mean") & threshold == "0.05"),
-             aes(yintercept = value), linetype = 2) +
-  facet_grid(nitrate ~ chrom, scales = "free_x", space = "free_x") +
-  scale_x_continuous(breaks = seq(0, 500, 100)) +
-  labs(x = "Position (cM)")
-```
-
-```{r}
-plot_scan1(pheno_scan_covar, geno_map) +
-abline(h = summary(pheno_covar_perm)[, "pheno1"], lty = 2)
-
-as_tibble(pheno_scan_covar, rownames = "marker") %>%
-  arrange(desc(pheno1))
-
-ril_cross$geno$`5`[, "c5.loc137.5"]
 ```
 
 
@@ -225,6 +182,8 @@ pheno_perm_df <- pheno_perm %>%
   mutate(nitrate = toupper(str_remove(trait, ".*_")))
 ```
 
+Here is the plot now:
+
 ```{r}
 pheno_scan_df %>% 
   filter(str_detect(trait, "z68_shoots_mean")) %>% 
@@ -244,9 +203,118 @@ There is also a convenience function to help us find peaks:
 find_peaks(pheno_scan, geno_map, threshold = 3)
 ```
 
+### Run scan `z68_shoots` with `flowering_time` as covariate
+
+```{r}
+# Run scan
+pheno_scan_covar <- scan1(geno_prob, 
+                          pheno = ril_cross$pheno[, c("z68_shoots_mean_hn"), drop = FALSE], 
+                          addcovar = ril_cross$pheno[, c("flowering_time_mean_hn"), drop = FALSE], 
+                          cores = 2)
+
+# Run permutations with covariate
+pheno_covar_perm <- scan1perm(geno_prob, 
+                          pheno = ril_cross$pheno[, c("z68_shoots_mean_hn"), drop = FALSE], 
+                          addcovar = ril_cross$pheno[, c("flowering_time_mean_hn"), drop = FALSE], 
+                          n_perm = 1000,
+                          cores = 2)
+```
+
+```{r}
+plot_scan1(pheno_scan_covar, geno_map)
+abline(h = summary(pheno_covar_perm)[, "z68_shoots_mean_hn"], lty = 2)
+```
+
+Let's investigate that marker a bit more. First let's identify which marker is the top one. 
+
+```{r}
+# identify top marker
+top_snp_covar <- pheno_scan_covar %>% 
+  as_tibble(rownames = "marker") %>%
+  top_n(1, z68_shoots_mean_hn) %>% 
+  pull(marker)
+```
+
+Now, we can extract the genotype probabilities for that marker and add them to our table of phenotypes:
+
+```{r}
+# create temporary table with genotypes and phenotypes
+temp <- pull_genoprobpos(geno_prob, "c5.loc137.5") %>% 
+  as_tibble(rownames = "ril_id") %>% 
+  full_join(pheno_summary, by = "ril_id")
+
+# plot - storing it in a variable because will re-use it later
+p <- temp %>% 
+  ggplot(aes(flowering_time_mean_hn, z68_shoots_mean_hn)) +
+  geom_point(aes(colour = aa), size = 2) +
+  scale_colour_gradient2(limits = c(0, 1), low = "#762a83", high = "#1b7837", mid = "grey", midpoint = 0.5) +
+  labs(colour = "Probability\nBd21")
+p
+```
+
+From this we can see that on average *Bd21* genotypes have more branches, for a given flowering time. 
+We can super-impose the regression lines from the QTL model. 
+I will fit the model myself, but this could also be achieved with the `qtl2::fit1()` function.
+
+```{r}
+# Fit no interaction covariate model
+covar_qtl_m1 <- lm(z68_shoots_mean_hn ~ 0 + aa + bb + flowering_time_mean_hn, data = temp)
+
+summary(covar_qtl_m1)
+```
+
+So now we can overlay the model prediction on the previous graph:
+
+```{r}
+p +
+  geom_abline(intercept = coef(covar_qtl_m1)["aa"], slope = coef(covar_qtl_m1)["flowering_time_mean_hn"]) +
+  geom_abline(intercept = coef(covar_qtl_m1)["bb"], slope = coef(covar_qtl_m1)["flowering_time_mean_hn"])
+```
+
+As it is, this model expects that the effect of flowering is the same across genotypes, but it seems from the graph that actually an interaction model (where the slopes can vary) might be better? 
+Let's try that!
+
+```{r}
+# Fit interaction covariate model
+covar_qtl_m2 <- lm(z68_shoots_mean_hn ~ 0 + aa + bb + aa : flowering_time_mean_hn + bb : flowering_time_mean_hn,
+                   data = temp)
+
+summary(covar_qtl_m2)
+```
+
+Let's compare the two models:
+
+```{r}
+# Analysis of variance
+anova(m0, m1)
+
+# Difference in information criteria
+AIC(m0) - AIC(m1)
+```
+
+Perhaps the complex model is marginally better, let's super-impose its fit on the graph:
+
+```{r}
+p +
+  geom_abline(intercept = coef(covar_qtl_m1)["aa"], 
+              slope = coef(covar_qtl_m1)["flowering_time_mean_hn"]) +
+  geom_abline(intercept = coef(covar_qtl_m1)["bb"], 
+              slope = coef(covar_qtl_m1)["flowering_time_mean_hn"]) +
+  geom_abline(intercept = coef(covar_qtl_m2)["aa"], 
+              slope = coef(covar_qtl_m2)["aa:flowering_time_mean_hn"], 
+              linetype = 2) +
+  geom_abline(intercept = coef(covar_qtl_m2)["bb"], 
+              slope = coef(covar_qtl_m2)["bb:flowering_time_mean_hn"],
+              linetype = 2)
+```
+
+In conclusion: this might be an interesting (if minor) QTL that explains branchiness independent of flowering time. 
+
+
 
 ## Mixed model QTL scans
 
 An alternative way to run the QTL scans is to model all the data together at once. 
 
+I would be tempted to fit these as the "final" QTL models, although I don't expect things will change that much. 
 ... to do ...
