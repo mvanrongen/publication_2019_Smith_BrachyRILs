@@ -18,12 +18,13 @@ knitr::opts_chunk$set(echo = TRUE)
 # load libraries
 library(qtl2)
 library(tidyverse)
+library(patchwork)
 
 # Custom function to add phenotypes to cross2 object
 source("https://gist.githubusercontent.com/tavareshugo/b10c3dca303c28b2d161e439a6ffcac6/raw/09df841ed6652d578c20efc62243e8a8e9a972f6/add_pheno.R")
 
 # change ggplot2 defaults
-theme_set(theme_bw())
+theme_set(theme_bw() + theme(text = element_text(size = 12)))
 ```
 
 
@@ -203,6 +204,33 @@ There is also a convenience function to help us find peaks:
 find_peaks(pheno_scan, geno_map, threshold = 3)
 ```
 
+Let's investigate that marker a bit more. First let's identify which marker is the top one. 
+
+```{r}
+# identify top marker
+top_snp <- pheno_scan %>% 
+  as_tibble(rownames = "marker") %>%
+  top_n(1, z68_shoots_mean_hn) %>% 
+  pull(marker)
+```
+
+Now, we can extract the genotype probabilities for that marker and add them to our table of phenotypes:
+
+```{r}
+# create temporary table with genotypes and phenotypes
+temp <- pull_genoprobpos(geno_prob, top_snp) %>% 
+  as_tibble(rownames = "ril_id") %>% 
+  full_join(pheno_summary, by = "ril_id")
+
+# plot - storing it in a variable because will re-use it later
+p1 <- temp %>% 
+  ggplot(aes(flowering_time_mean_hn, z68_shoots_mean_hn)) +
+  geom_point(aes(colour = aa), size = 2) +
+  scale_colour_gradient2(limits = c(0, 1), low = "#762a83", high = "#1b7837", mid = "grey", midpoint = 0.5) +
+  labs(colour = "Probability\nBd21", title = "Simple scan", tag = "A")
+p1
+```
+
 ### Run scan `z68_shoots` with `flowering_time` as covariate
 
 ```{r}
@@ -239,17 +267,17 @@ Now, we can extract the genotype probabilities for that marker and add them to o
 
 ```{r}
 # create temporary table with genotypes and phenotypes
-temp <- pull_genoprobpos(geno_prob, "c5.loc137.5") %>% 
+temp <- pull_genoprobpos(geno_prob, top_snp_covar) %>% 
   as_tibble(rownames = "ril_id") %>% 
   full_join(pheno_summary, by = "ril_id")
 
 # plot - storing it in a variable because will re-use it later
-p <- temp %>% 
+p2 <- temp %>% 
   ggplot(aes(flowering_time_mean_hn, z68_shoots_mean_hn)) +
   geom_point(aes(colour = aa), size = 2) +
   scale_colour_gradient2(limits = c(0, 1), low = "#762a83", high = "#1b7837", mid = "grey", midpoint = 0.5) +
-  labs(colour = "Probability\nBd21")
-p
+  labs(colour = "Probability\nBd21", title = "Scan with flowering covariate", tag = "B")
+p2
 ```
 
 From this we can see that on average *Bd21* genotypes have more branches, for a given flowering time. 
@@ -266,9 +294,11 @@ summary(covar_qtl_m1)
 So now we can overlay the model prediction on the previous graph:
 
 ```{r}
-p +
-  geom_abline(intercept = coef(covar_qtl_m1)["aa"], slope = coef(covar_qtl_m1)["flowering_time_mean_hn"]) +
-  geom_abline(intercept = coef(covar_qtl_m1)["bb"], slope = coef(covar_qtl_m1)["flowering_time_mean_hn"])
+p2 +
+  geom_abline(intercept = coef(covar_qtl_m1)["aa"], 
+              slope = coef(covar_qtl_m1)["flowering_time_mean_hn"]) +
+  geom_abline(intercept = coef(covar_qtl_m1)["bb"], 
+              slope = coef(covar_qtl_m1)["flowering_time_mean_hn"])
 ```
 
 As it is, this model expects that the effect of flowering is the same across genotypes, but it seems from the graph that actually an interaction model (where the slopes can vary) might be better? 
@@ -286,16 +316,16 @@ Let's compare the two models:
 
 ```{r}
 # Analysis of variance
-anova(m0, m1)
+anova(covar_qtl_m1, covar_qtl_m2)
 
 # Difference in information criteria
-AIC(m0) - AIC(m1)
+AIC(covar_qtl_m1) - AIC(covar_qtl_m2)
 ```
 
 Perhaps the complex model is marginally better, let's super-impose its fit on the graph:
 
 ```{r}
-p +
+p2 +
   geom_abline(intercept = coef(covar_qtl_m1)["aa"], 
               slope = coef(covar_qtl_m1)["flowering_time_mean_hn"]) +
   geom_abline(intercept = coef(covar_qtl_m1)["bb"], 
@@ -309,6 +339,16 @@ p +
 ```
 
 In conclusion: this might be an interesting (if minor) QTL that explains branchiness independent of flowering time. 
+
+
+```{r}
+p1 + p2 + 
+  plot_spacer() + p2 + 
+  plot_layout(ncol = 2, widths = c(1, 2))
+
+{p1 + p2 + p1} / {p2 + p1 + plot_layout(widths = c(1, 2))} 
+```
+
 
 
 
