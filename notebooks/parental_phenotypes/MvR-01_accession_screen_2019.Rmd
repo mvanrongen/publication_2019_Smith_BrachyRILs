@@ -1,0 +1,54 @@
+---
+title: "Branchy accession screen data tidying"
+author: "Martin van Rongen"
+date: "2019-09-12"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 4
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+## Loading libraries and settings
+
+Load the relevant libraries and change some default plotting settings
+
+```{r, message = FALSE, warning = FALSE}
+library(tidyverse)
+library(lubridate)
+library(readxl)
+library(visdat)
+theme_set(theme_bw())
+scale_colour_discrete <- function(...) scale_color_brewer(palette = "Dark2")
+scale_fill_discrete <- function(...) scale_fill_brewer(palette = "Dark2")
+```
+
+## Read data
+
+```{r}
+
+path <- file.path(... = "../../data/raw/2019_08_15 Accessions Screen.xlsx")
+
+LN_data <- path %>%
+  excel_sheets() %>%
+  set_names() %>% 
+  map_df(~ read_excel(path = path, sheet = 1), .id = "sheet")
+
+HN_data <- path %>%
+  excel_sheets() %>%
+  set_names() %>% 
+  map_df(~ read_excel(path = path, sheet = 2), .id = "sheet")
+
+accession_screen <- 
+  bind_rows(LN_data, HN_data) %>% 
+  rename_all(tolower)
+```
+
+```{r}
+vis_dat(accession_screen)
+```
+
