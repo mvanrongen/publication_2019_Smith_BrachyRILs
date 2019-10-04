@@ -1,0 +1,261 @@
+---
+title: "Seed Weight"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Setup
+
+```{r libraries, message = FALSE, warning = FALSE}
+# load libraries
+library(tidyverse)
+library(patchwork)
+library(broom)
+library(lme4)
+
+# change ggplot2 defaults
+theme_set(theme_bw())
+```
+
+```{r functions}
+#' Fit several relevant models to our data
+#'
+#' @param model_data a data.frame containing the data to be used in the model
+#' @param trait a character vector containing the trait to be used as outcome variable
+fit_lmms <- function(model_data, trait){
+  
+  if(!(trait %in% names(model_data))) stop("Trait does not exist")
+  
+  # define trait column
+  model_data$trait <- model_data[[trait]]
+  
+  # check and remove missing values
+  if(any(is.na(model_data$trait))){
+    warning("There's missing values in the trait. They will be removed.\n")
+    model_data <- model_data %>% drop_na(trait)
+  }
+  
+  # fit and return models
+  lmm_fits <- with(model_data,
+                 list(
+                   n_ril_int_batch = lmer(trait ~ nitrate_level  + (nitrate_level|ril_id) + (1|batch),
+                                           control = lmerControl(optimizer ="Nelder_Mead")),
+                   n_ril_int_batch_intn = lmer(trait ~ nitrate_level  + (nitrate_level|ril_id) + (nitrate_level|batch),
+                                           control = lmerControl(optimizer ="Nelder_Mead")),
+                   n_ril_batch_intn = lmer(trait ~ nitrate_level  + (1|ril_id) + (nitrate_level|batch),
+                                           control = lmerControl(optimizer ="Nelder_Mead")),
+                   n_ril_int = lmer(trait ~ nitrate_level  + (nitrate_level|ril_id)),
+                   n_ril_batch = lmer(trait ~ nitrate_level  + (1|ril_id) + (1|batch)),
+                   n_ril = lmer(trait ~ nitrate_level  + (1|ril_id)),
+                   n_batch = lmer(trait ~ nitrate_level + (1|batch)),
+                   ril = lmer(trait ~ (1|ril_id)),
+                   n = lm(trait ~ nitrate_level),
+                   lm_fit = lm(trait ~ nitrate_level*ril_id)
+                 ))
+  return(lmm_fits)
+}
+```
+
+
+```{r}
+# read original data - column types are explicitly defined
+all_phenotypes <- read_csv("../../data/processed/ril_phenotypes/ril_phenotypic_data.csv",
+                           col_types = cols(
+                             .default = col_double(),
+                             sheet = col_character(),
+                             identifier = col_character(),
+                             block = col_character(),
+                             shelf = col_character(),
+                             nitrate_level = col_factor(levels = c("LN", "HN")),
+                             id = col_character(),
+                             batch = col_factor(),
+                             position_grid_location = col_character(),
+                             ril_id = col_character(),
+                             sow_date = col_date(format = "%Y-%m-%d"),
+                             z68_date = col_date(format = "%Y-%m-%d"),
+                             senescence_date = col_date(format = "%Y-%m-%d")
+                           )) %>% 
+  # exclude filler line
+  filter(ril_id != "Bd21-3") %>% 
+  # retain only lines that have data in both nitrate treatments
+  group_by(ril_id) %>% 
+  filter(n_distinct(nitrate_level) == 2) %>% 
+  ungroup()
+
+# Split data into:
+# test - will not be touched on until the end
+# training - will be used to play around with different models
+test <- all_phenotypes %>% filter(batch %in% c("1", "2"))
+training <- all_phenotypes %>% filter(!(batch %in% c("1", "2")))
+```
+
+Get the data for the model
+
+```{r}
+# Clean data for model
+model_data <- training %>% 
+  # select variables of interest - rename trait of interest
+  select(batch, nitrate_level, ril_id, trait_raw = seed_weight_g) %>% 
+  # remove missing values
+  drop_na() %>% 
+  # scale it
+  mutate(trait = (trait_raw - mean(trait_raw))/sd(trait_raw))
+
+# quick check for outliers (using residuals from linear model):
+lm(trait ~ nitrate_level:ril_id, data = model_data) %>% plot(which = 1)
+```
+
+No clear outliers. But clearly there's variance heterogeneity... Oh no, this is harder to model :(
+
+```{r}
+# Create table that will be used to get model predictions
+model_pred <- model_data %>% 
+  distinct(ril_id, nitrate_level)
+
+# fit models
+model_fits <- fit_lmms(model_data, "trait")
+```
+
+
+## Explore models
+
+Looking at the basic GxE model:
+
+```{r}
+summary(model_fits$n_ril_int)
+```
+
+We get warning of _boundary fit_, which we can see is because there's basically no variance on LN.
+And even on HN the variance is probably small-ish.
+
+```{r}
+model_pred %>% 
+  mutate(pred = predict(model_fits$n_ril_int, model_pred),
+         mean = predict(model_fits$lm_fit, model_pred)) %>% 
+  gather("model", "prediction", pred, mean) %>% 
+  mutate(x = factor(interaction(model, nitrate_level), 
+                    levels = c("mean.LN", "pred.LN", "pred.HN", "mean.HN"))) %>% 
+  ggplot(aes(x, prediction)) +
+  geom_line(aes(group = ril_id), alpha = 0.5)
+```
+
+It's a good idea to see what the plasticity distribution is in the population:
+
+```{r}
+model_pred %>% 
+  mutate(mean = predict(model_fits$lm_fit, model_pred)) %>% 
+  spread(nitrate_level, mean) %>% 
+  mutate(plas = HN - LN) %>% 
+  ggplot(aes(plas)) + stat_ecdf()
+```
+
+Generally positive, with inter-quartile range between ~1.4 and 1.75 standard deviations. 
+
+Let's look at AIC for all models:
+
+```{r}
+model_fits %>% 
+  map_dbl(AIC) %>% 
+  sort() %>% 
+  enframe(name = "model", value = "AIC") %>% 
+  mutate(dAIC = AIC - min(AIC),
+         relative_likelihood = exp(-dAIC/2),
+         AIC_weights = relative_likelihood/sum(relative_likelihood))
+```
+
+The saturated model has lowest AIC. Several models including batch come on top.
+
+Let's investigate this:
+
+```{r}
+model_data %>% 
+  group_by(ril_id, batch, nitrate_level) %>% 
+  summarise(trait = mean(trait)) %>% 
+  ggplot(aes(interaction(batch, nitrate_level), trait)) + 
+  geom_line(aes(group = ril_id), alpha = 0.2) +
+  geom_point(aes(colour = nitrate_level), stat = "summary", fun.y = "mean", size = 3)
+```
+
+Batch 6 HN has much higher seed weight! What happened there?
+
+Let's look at the model with lowest AIC:
+
+```{r}
+summary(model_fits$n_ril_int_batch_intn)
+```
+
+
+
+
+## Conclusion
+
+- Batch seems to have an effect on this trait, but mostly might be because of batch 5 HN
+- There's little evidence for variance on LN, so effectively one should just model HN data
+
+```{r}
+summary(model_fits$n_ril_int_batch_intn)
+```
+
+Percentage of variance:
+
+```{r}
+model_fits$n_ril_int_batch_intn %>% 
+  VarCorr() %>% 
+  as_tibble() %>% filter(is.na(var2)) %>% 
+  mutate(pct_var = vcov/sum(vcov)*100)
+```
+
+We can look at the residual and predictive-observed plots:
+
+```{r}
+# residual plot
+p1 <- model_fits$n_ril_int_batch_intn %>% 
+  augment(model_data) %>% 
+  ggplot(aes(.fitted, .resid)) +
+  geom_point(aes(colour = nitrate_level)) + 
+  stat_smooth(se = FALSE) +
+  geom_hline(yintercept = 0, linetype = 2, size = 1) +
+  labs(title = "Residual plot")
+
+p2 <- model_fits$n_ril_int_batch_intn %>% 
+  augment(model_data) %>% 
+  ggplot(aes(.fitted, trait)) +
+  geom_point(aes(colour = nitrate_level), show.legend = FALSE) + 
+  geom_abline(linetype = 2, size = 1) +
+  labs(title = "Predicted vs. Observed")
+
+p1 + p2 + plot_layout(ncol = 1)
+```
+
+We can also look at the prediction on the test set:
+
+```{r}
+# add predictions to test set
+test <- test %>% 
+  mutate(predicted = predict(model_fits$n_ril_int_batch_intn, newdata = test, allow.new.levels = TRUE),
+         observed = (seed_weight_g - mean(model_data$trait_raw)) / sd(model_data$trait_raw)) %>% 
+  drop_na(observed)
+
+# predicted versus observed
+test %>% 
+  ggplot(aes(predicted, observed)) +
+  geom_point(aes(colour = nitrate_level)) +
+  geom_abline() +
+  geom_vline(xintercept = 0, linetype = 2) +
+  geom_hline(yintercept = 0, linetype = 2) +
+  theme_classic()
+
+# difference between predicted and observed
+test %>% 
+  ggplot(aes(predicted - observed)) +
+  geom_density(aes(colour = nitrate_level)) +
+  geom_vline(xintercept = 0, linetype = 2, size = 1)
+
+test %>% 
+  group_by(nitrate_level) %>% 
+  summarise(spearman = cor(predicted, observed, method = "spearman"),
+            pearson = cor(predicted, observed, method = "pearson"))
+```
