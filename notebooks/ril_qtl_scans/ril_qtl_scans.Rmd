@@ -7,6 +7,8 @@ output:
     toc: true
     toc_float: true
     toc_depth: 4
+editor_options: 
+  chunk_output_type: inline
 ---
 
 ```{r setup, include=FALSE}
@@ -19,9 +21,7 @@ knitr::opts_chunk$set(echo = TRUE)
 library(qtl2)
 library(tidyverse)
 library(patchwork)
-
-# Custom function to add phenotypes to cross2 object
-source("https://gist.githubusercontent.com/tavareshugo/b10c3dca303c28b2d161e439a6ffcac6/raw/09df841ed6652d578c20efc62243e8a8e9a972f6/add_pheno.R")
+library(qtl2helper) # https://github.com/tavareshugo/qtl2helper
 
 # change ggplot2 defaults
 theme_set(theme_bw() + theme(text = element_text(size = 12)))
@@ -68,30 +68,53 @@ ril_cross <- read_cross2("../../data/external/Cui2012_qtl2cross.zip")
 We read the clean (processed) data and summarise per genotype/nitrate treatment
 
 ```{r}
-# read original data
-ril_phenotypes <- read_csv("../../data/processed/ril_phenotypes/ril_phenotypic_data.csv")
+# read individual data
+ril_phenotypes <- read_csv("../../data/processed/ril_phenotypes/ril_phenotypic_data_individual.csv",
+                           col_types = cols(
+                             .default = col_double(),
+                             sheet = col_character(),
+                             identifier = col_character(),
+                             block = col_character(),
+                             shelf = col_character(),
+                             nitrate_level = col_factor(levels = c("LN", "HN")),
+                             id = col_character(),
+                             batch = col_factor(),
+                             position_grid_location = col_character(),
+                             ril_id = col_character(),
+                             sow_date = col_date(format = "%Y-%m-%d"),
+                             z68_date = col_date(format = "%Y-%m-%d"),
+                             senescence_date = col_date(format = "%Y-%m-%d")
+                           ))
+# 
+# # Simple summary of data
+# pheno <- ril_phenotypes %>% 
+#   # retain only RILs
+#   filter(str_detect(ril_id, "RIL")) %>% 
+#   # summarise per nitrate and RIL
+#   group_by(nitrate_level, ril_id) %>% 
+#   summarise_at(vars(z68_shoots, z68_greenness, senescence_height, seed_weight_g, 
+#                     lifespan, flowering_senescence_interval, flowering_time),
+#                .funs = list(mean = ~ mean(., na.rm = TRUE),
+#                             n = ~ sum(!is.na(.)),
+#                             sd = ~ sd(., na.rm = TRUE))) %>% 
+#   # remove grouping
+#   ungroup()
+# 
+# # Summarised data is also available from this file
+# # but there are some differences from above summary, 
+# # possibly because the table below is summarised per batch and then per ril/nitrate?
+# # pheno <- read_csv("../../data/processed/ril_phenotypes/2019_05_28_averages_RILs.csv")
 
-# Simple summary of data
-pheno <- ril_phenotypes %>% 
-  # retain only RILs
-  filter(str_detect(ril_id, "RIL")) %>% 
-  # summarise per nitrate and RIL
-  group_by(nitrate_level, ril_id) %>% 
-  summarise_at(vars(z68_shoots, z68_greenness, senescence_height, seed_weight_g, 
-                    lifespan, flowering_senescence_interval, flowering_time),
-               .funs = list(mean = ~ mean(., na.rm = TRUE),
-                            n = ~ sum(!is.na(.)),
-                            sd = ~ sd(., na.rm = TRUE))) %>% 
-  # remove grouping
-  ungroup()
-
-# Summarised data is also available from this file
-# but there are some differences from above summary, 
-# possibly because the table below is summarised per batch and then per ril/nitrate?
-# pheno <- read_csv("../../data/processed/ril_phenotypes/2019_05_28_averages_RILs.csv")
+# read summarised phenotype data
+pheno <- read_csv("../../data/processed/ril_phenotypes/ril_phenotypic_data_averaged.csv",
+                           col_types = cols(
+                             .default = col_double(),
+                             nitrate_level = col_factor(levels = c("LN", "HN")),
+                             ril_id = col_character()))
 
 # Get HN and LN into separate columns as well as plasticity
 pheno_summary <- pheno %>%
+  filter(str_detect(ril_id, "RIL")) %>% 
   select(ril_id, nitrate_level, matches("_mean")) %>%
   drop_na() %>%
   group_by(ril_id) %>%
@@ -99,6 +122,7 @@ pheno_summary <- pheno %>%
                .funs = list(hn = ~ .[nitrate_level == "HN"],
                             ln = ~ .[nitrate_level == "LN"],
                             plas = ~ .[nitrate_level == "HN"] - .[nitrate_level == "LN"])) %>%
+  # scale the data (this is probably not really needed...)
   mutate_at(vars(matches("_mean")),
             list(~ (. - mean(.))/sd(.)))
 ```
@@ -135,7 +159,7 @@ The simple QTL scan is straighforward, using `R/qtl2` functionality:
 pheno_scan <- scan1(geno_prob, ril_cross$pheno, cores = 2)
 
 # Run permutations (takes a while)
-pheno_perm <- scan1perm(geno_prob, ril_cross$pheno, n_perm = 1000, cores = 3)
+pheno_perm <- scan1perm(geno_prob, ril_cross$pheno, n_perm = 500, cores = 3)
 ```
 
 
@@ -155,53 +179,40 @@ But it might be more convenient to "tidy" the data so that one can make custom p
 
 ```{r}
 pheno_scan_df <- pheno_scan %>% 
-  # convert to tibble
-  as_tibble(rownames = "locus") %>% 
-  # gather all traits
-  gather("trait", "LOD", -locus) %>% 
-  # create variable with nitrate treatment
-  mutate(nitrate = toupper(str_remove(trait, ".*_")))
-
-# Join with genetic map data
-pheno_scan_df <- geno_map %>% 
-  # turn into tibble
-  map(enframe, name = "locus", value = "pos") %>% 
-  # bind
-  bind_rows(.id = "chrom") %>% 
-  # join with scan
-  left_join(pheno_scan_df, by = "locus")
+  # tidy (from qtl2helper package)
+  tidy(map = geno_map) %>% 
+  # add nitrate variable based on pheno column
+  mutate(nitrate = toupper(str_remove(pheno, ".*_")))
 
 # Tidy permutations
 pheno_perm_df <- pheno_perm %>% 
-  # get thresholds
-  summary(alpha = c(0.1, 0.05, 0.01)) %>% 
-  # convert to tibble
-  as_tibble(rownames = "threshold") %>% 
-  # gather traits
-  gather("trait", "value", -threshold) %>% 
+  tidy(alpha = c(0.1, 0.05, 0.01)) %>% 
   # create variable with nitrate treatment
-  mutate(nitrate = toupper(str_remove(trait, ".*_")))
+  mutate(nitrate = toupper(str_remove(pheno, ".*_")))
+
+# get peaks
+# using threshold of 3, as that seems to be consistent across traits from permutation test
+pheno_peak_df <- find_peaks(pheno_scan, geno_map, threshold = 3, drop = 1) %>% 
+  rename(pheno = lodcolumn, chrom = chr) %>% 
+  mutate(nitrate = toupper(str_remove(pheno, ".*_")))
 ```
 
 Here is the plot now:
 
 ```{r}
 pheno_scan_df %>% 
-  filter(str_detect(trait, "z68_shoots_mean")) %>% 
+  filter(str_detect(pheno, "z68_shoots_mean")) %>% 
   ggplot(aes(pos, LOD)) +
   geom_line() +
-  geom_hline(data = pheno_perm_df %>% filter(str_detect(trait, "z68_shoots_mean") & threshold == "0.05"),
-             aes(yintercept = value), linetype = 2) +
+  geom_hline(data = pheno_perm_df %>% filter(str_detect(pheno, "z68_shoots_mean") & alpha == "0.05"),
+             aes(yintercept = threshold), linetype = 2) +
+  geom_segment(data = pheno_peak_df %>% filter(str_detect(pheno, "z68_shoots_mean")),
+               aes(x = ci_lo, xend = ci_hi, y = -0.1, yend = -0.1), 
+               colour = "brown", size = 3) +
   facet_grid(nitrate ~ chrom, scales = "free_x", space = "free_x") +
   scale_x_continuous(breaks = seq(0, 500, 100)) +
-  labs(x = "Position (cM)")
-```
-
-There is also a convenience function to help us find peaks:
-
-```{r}
-# using threshold of 3, as that seems to be consistent across traits from permutation test
-find_peaks(pheno_scan, geno_map, threshold = 3)
+  labs(x = "Position (cM)") +
+  theme(panel.grid = element_blank())
 ```
 
 Let's investigate that marker a bit more. First let's identify which marker is the top one. 
@@ -220,7 +231,11 @@ Now, we can extract the genotype probabilities for that marker and add them to o
 # create temporary table with genotypes and phenotypes
 temp <- pull_genoprobpos(geno_prob, top_snp) %>% 
   as_tibble(rownames = "ril_id") %>% 
-  full_join(pheno_summary, by = "ril_id")
+  inner_join(pheno_summary, by = "ril_id")
+
+temp %>% 
+  ggplot(aes(cut(aa, c(0, 0.25, 0.75, 1)), z68_shoots_mean_hn)) +
+  ggbeeswarm::geom_quasirandom()
 
 # plot - storing it in a variable because will re-use it later
 p1 <- temp %>% 
@@ -233,24 +248,96 @@ p1
 
 ### Run scan `z68_shoots` with `flowering_time` as covariate
 
+Flowering and shoots are correlated, thus some QTL in common:
+
+```{r}
+p1 <- pheno_summary %>% 
+  ggplot(aes(z68_shoots_mean_hn, flowering_time_mean_hn)) +
+  geom_point() + 
+  labs(x = "Shoots", y = "Flowering", title = "HN")
+
+p2 <- pheno_summary %>% 
+  ggplot(aes(z68_shoots_mean_ln, flowering_time_mean_ln)) +
+  geom_point() + 
+  labs(x = "Shoots", y = "Flowering", title = "LN")
+
+p1 + p2
+```
+
+
+```{r}
+p1 <- pheno_scan_df %>% 
+  filter(str_detect(pheno, "z68_shoots_mean")) %>% 
+  ggplot(aes(pos, LOD)) +
+  geom_line() +
+  geom_hline(data = pheno_perm_df %>% filter(str_detect(pheno, "z68_shoots_mean") & alpha == "0.05"),
+             aes(yintercept = threshold), linetype = 2) +
+  geom_segment(data = pheno_peak_df %>% filter(str_detect(pheno, "z68_shoots_mean")),
+               aes(x = ci_lo, xend = ci_hi, y = -0.1, yend = -0.1), 
+               colour = "brown", size = 3) +
+  facet_grid(nitrate ~ chrom, scales = "free_x", space = "free_x") +
+  scale_x_continuous(breaks = seq(0, 500, 100)) +
+  labs(x = "Position (cM)", title = "Shoots") +
+  theme(panel.grid = element_blank())
+
+p2 <- pheno_scan_df %>% 
+  filter(str_detect(pheno, "flowering_time_mean")) %>% 
+  ggplot(aes(pos, LOD)) +
+  geom_line() +
+  geom_hline(data = pheno_perm_df %>% filter(str_detect(pheno, "flowering_time_mean") & alpha == "0.05"),
+             aes(yintercept = threshold), linetype = 2) +
+  geom_segment(data = pheno_peak_df %>% filter(str_detect(pheno, "flowering_time_mean")),
+               aes(x = ci_lo, xend = ci_hi, y = -0.1, yend = -0.1), 
+               colour = "brown", size = 3) +
+  facet_grid(nitrate ~ chrom, scales = "free_x", space = "free_x") +
+  scale_x_continuous(breaks = seq(0, 500, 100)) +
+  labs(x = "Position (cM)", title = "Flowering") +
+  theme(panel.grid = element_blank())
+
+p1 + p2 + plot_layout(ncol = 1)
+```
+
+We can run QTL scan adding flowering as a covariate:
+
 ```{r}
 # Run scan
 pheno_scan_covar <- scan1(geno_prob, 
                           pheno = ril_cross$pheno[, c("z68_shoots_mean_hn"), drop = FALSE], 
                           addcovar = ril_cross$pheno[, c("flowering_time_mean_hn"), drop = FALSE], 
-                          cores = 2)
+                          cores = 3) %>% 
+  tidy(map = geno_map) %>% 
+  mutate(nitrate = toupper(str_remove(pheno, ".*_")),
+         covariate = TRUE)
+
+# add to original scan
+pheno_scan_df <- pheno_scan_df %>% 
+  mutate(covariate = FALSE) %>% 
+  bind_rows(pheno_scan_covar)
 
 # Run permutations with covariate
 pheno_covar_perm <- scan1perm(geno_prob, 
                           pheno = ril_cross$pheno[, c("z68_shoots_mean_hn"), drop = FALSE], 
                           addcovar = ril_cross$pheno[, c("flowering_time_mean_hn"), drop = FALSE], 
-                          n_perm = 1000,
-                          cores = 2)
+                          n_perm = 500,
+                          cores = 3) %>% 
+  tidy(alpha = c(0.1, 0.05, 0.01)) %>% 
+  mutate(nitrate = toupper(str_remove(pheno, ".*_")))
 ```
 
 ```{r}
-plot_scan1(pheno_scan_covar, geno_map)
-abline(h = summary(pheno_covar_perm)[, "z68_shoots_mean_hn"], lty = 2)
+pheno_scan_df %>% 
+  filter(str_detect(pheno, "z68_shoots") & nitrate == "HN") %>% 
+  ggplot(aes(pos, LOD)) +
+  geom_line(aes(colour = covariate)) +
+  geom_hline(data = pheno_perm_df %>% filter(str_detect(pheno, "z68_shoots_mean_hn") & alpha == "0.05"),
+             aes(yintercept = threshold), linetype = 2) +
+    geom_hline(data = pheno_covar_perm %>% filter(alpha == "0.05"),
+             aes(yintercept = threshold), linetype = 2) +
+  facet_grid(nitrate ~ chrom, scales = "free_x", space = "free_x") +
+  scale_x_continuous(breaks = seq(0, 500, 100)) +
+  scale_colour_manual(values = c("black", "brown")) +
+  labs(x = "Position (cM)", title = "Shoots") +
+  theme(panel.grid = element_blank())
 ```
 
 Let's investigate that marker a bit more. First let's identify which marker is the top one. 
@@ -258,8 +345,7 @@ Let's investigate that marker a bit more. First let's identify which marker is t
 ```{r}
 # identify top marker
 top_snp_covar <- pheno_scan_covar %>% 
-  as_tibble(rownames = "marker") %>%
-  top_n(1, z68_shoots_mean_hn) %>% 
+  top_n(1, LOD) %>% 
   pull(marker)
 ```
 
@@ -269,7 +355,7 @@ Now, we can extract the genotype probabilities for that marker and add them to o
 # create temporary table with genotypes and phenotypes
 temp <- pull_genoprobpos(geno_prob, top_snp_covar) %>% 
   as_tibble(rownames = "ril_id") %>% 
-  full_join(pheno_summary, by = "ril_id")
+  inner_join(pheno_summary, by = "ril_id")
 
 # plot - storing it in a variable because will re-use it later
 p2 <- temp %>% 
@@ -338,23 +424,328 @@ p2 +
               linetype = 2)
 ```
 
-In conclusion: this might be an interesting (if minor) QTL that explains branchiness independent of flowering time. 
+In conclusion: this might be an interesting (if minor) QTL that explains branchiness conditional on flowering time. 
 
+
+
+## Effect sizes
 
 ```{r}
-p1 + p2 + 
-  plot_spacer() + p2 + 
-  plot_layout(ncol = 2, widths = c(1, 2))
+pheno_scan_df %>% 
+  filter(pheno %in% c("z68_shoots_mean_hn", "flowering_time_mean_hn", "flowering_time_mean_ln")) %>% 
+  group_by(pheno, covariate) %>% 
+  top_n(1, LOD)
+```
 
-{p1 + p2 + p1} / {p2 + p1 + plot_layout(widths = c(1, 2))} 
+```{r}
+# Shoot and Flowering SNP on HN
+target_snp <- "BD3260_5"
+
+p1 <- pull_genoprobpos(geno_prob, target_snp) %>% 
+  as_tibble(rownames = "ril_id") %>% 
+  inner_join(pheno_summary, by = "ril_id") %>% 
+  ggplot(aes(cut(aa, breaks = c(0, 0.25, 0.75, 1)), z68_shoots_mean_hn)) +
+  ggbeeswarm::geom_quasirandom(aes(colour = aa), show.legend = FALSE) +
+  geom_pointrange(stat = "summary", fun.data = "mean_cl_boot", colour = "brown", size = 1) +
+  scale_colour_gradient2(limits = c(0, 1), low = "#762a83", high = "#1b7837", mid = "grey", midpoint = 0.5) +
+  labs(x = "Probability Bd21", y = "Effect size", title = "Shoots HN")
+
+p2 <- pull_genoprobpos(geno_prob, target_snp) %>% 
+  as_tibble(rownames = "ril_id") %>% 
+  inner_join(pheno_summary, by = "ril_id") %>% 
+  ggplot(aes(flowering_time_mean_hn, z68_shoots_mean_hn)) +
+  geom_point(aes(colour = aa), size = 2) +
+  scale_colour_gradient2(limits = c(0, 1), low = "#762a83", high = "#1b7837", mid = "grey", midpoint = 0.5) +
+  labs(x = "Flowering HN", y = "Shoots HN", colour = "Probability Bd21")
+
+p1 + p2
+```
+
+```{r}
+# Shoot SNP using flowering as covariate
+target_snp <- "c5.loc137.5"
+
+p1 <- pull_genoprobpos(geno_prob, target_snp) %>% 
+  as_tibble(rownames = "ril_id") %>% 
+  inner_join(pheno_summary, by = "ril_id") %>% 
+  ggplot(aes(cut(aa, breaks = c(0, 0.25, 0.75, 1)), z68_shoots_mean_hn)) +
+  ggbeeswarm::geom_quasirandom(aes(colour = aa), show.legend = FALSE) +
+  geom_pointrange(stat = "summary", fun.data = "mean_cl_boot", colour = "brown", size = 1) +
+  scale_colour_gradient2(limits = c(0, 1), low = "#762a83", high = "#1b7837", mid = "grey", midpoint = 0.5) +
+  labs(x = "Probability Bd21", y = "Effect size", title = "Shoots HN")
+
+p2 <- pull_genoprobpos(geno_prob, target_snp) %>% 
+  as_tibble(rownames = "ril_id") %>% 
+  inner_join(pheno_summary, by = "ril_id") %>% 
+  ggplot(aes(flowering_time_mean_hn, z68_shoots_mean_hn)) +
+  geom_point(aes(colour = aa), size = 2) +
+  scale_colour_gradient2(limits = c(0, 1), low = "#762a83", high = "#1b7837", mid = "grey", midpoint = 0.5) +
+  labs(x = "Flowering HN", y = "Shoots HN", colour = "Probability Bd21")
+
+p1 + p2
+```
+
+Here, I try to plot all genotype combinations. 
+But in a way, conditioning on flowering is the same as conditioning on the main QTL (because they are correlated). So this plot reveals a similar thing as above. 
+
+```{r}
+shoot_effects <- pull_genoprobpos(geno_prob, "BD3260_5") %>% 
+  as_tibble(rownames = "ril_id") %>% 
+  select(ril_id, peak1 = aa)
+
+shoot_effects <- pull_genoprobpos(geno_prob, "c5.loc137.5") %>% 
+  as_tibble(rownames = "ril_id") %>% 
+  select(ril_id, peak2 = aa) %>% 
+  inner_join(shoot_effects, by = "ril_id")
+
+shoot_effects <- shoot_effects %>% 
+  inner_join(pheno_summary, by = "ril_id")
+
+shoot_effects %>% 
+  mutate(peak1 = case_when(peak1 < 0.25 ~ "Bd3-1", 
+                           peak1 > 0.75 ~ "BD21",
+                           TRUE ~ as.character(NA)),
+         peak2 = case_when(peak2 < 0.25 ~ "Bd3-1", 
+                           peak2 > 0.75 ~ "BD21",
+                           TRUE ~ as.character(NA))) %>% 
+  drop_na() %>% 
+  mutate(genotype = paste(peak1, peak2, sep = " / ")) %>% 
+  mutate(genotype = fct_reorder(genotype, z68_shoots_mean_hn)) %>% 
+  ggplot(aes(genotype, z68_shoots_mean_hn)) +
+  ggbeeswarm::geom_quasirandom(size = 2) +
+  geom_pointrange(stat = "summary", fun.data = "mean_cl_boot", colour = "brown", size = 1) +
+  labs(x = "Genotype", y = "Shoots HN")
 ```
 
 
 
+```{r}
+# SNP that pops up on LN
+target_snp <- "BD0635_1"
 
-## Mixed model QTL scans
+p1 <- pull_genoprobpos(geno_prob, target_snp) %>% 
+  as_tibble(rownames = "ril_id") %>% 
+  inner_join(pheno_summary, by = "ril_id") %>% 
+  ggplot(aes(cut(aa, breaks = c(0, 0.25, 0.75, 1)), flowering_time_mean_ln)) +
+  ggbeeswarm::geom_quasirandom(aes(colour = aa), show.legend = FALSE) +
+  geom_pointrange(stat = "summary", fun.data = "mean_cl_boot", colour = "brown", size = 1) +
+  scale_colour_gradient2(limits = c(0, 1), low = "#762a83", high = "#1b7837", mid = "grey", midpoint = 0.5) +
+  labs(x = "Probability Bd21", y = "Effect size", title = "Flowering LN")
 
-An alternative way to run the QTL scans is to model all the data together at once. 
+p2 <- pull_genoprobpos(geno_prob, target_snp) %>% 
+  as_tibble(rownames = "ril_id") %>% 
+  inner_join(pheno_summary, by = "ril_id") %>% 
+  ggplot(aes(flowering_time_mean_ln, flowering_time_mean_hn)) +
+  geom_point(aes(colour = aa), size = 2) +
+  scale_colour_gradient2(limits = c(0, 1), low = "#762a83", high = "#1b7837", mid = "grey", midpoint = 0.5) +
+  labs(x = "Flowering LN", y = "Flowering HN", colour = "Probability Bd21")
 
-I would be tempted to fit these as the "final" QTL models, although I don't expect things will change that much. 
-... to do ...
+p1 + p2
+```
+
+It seems like there might be two outliers there. 
+In particular, the one that falls off the diagonal. 
+In the mixed models, it was shrunk towards the diagonal, but there it was not and may have big influence in the model. 
+
+Re-running the scan without that individual doesn't make a difference:
+
+```{r}
+pheno_summary %>% top_n(2, flowering_time_mean_ln)
+
+# re-run the scan without this individual
+temp <- ril_cross$pheno[pheno_summary$ril_id[!(pheno_summary$ril_id %in% c("RIL130", "RIL098"))], ]
+
+scan1(geno_prob, temp) %>% 
+  plot(map = geno_map, lodcolumn = "flowering_time_mean_ln")
+```
+
+If we fit the mixed model, we can see that the two nitrate treatments should be identical:
+
+```{r}
+library(lme4)
+model_data <- ril_phenotypes %>% 
+  filter(str_detect(ril_id, "RIL")) %>% 
+  # retain only lines that have data in both nitrate treatments
+  group_by(ril_id) %>% 
+  filter(n_distinct(nitrate_level) == 2) %>% 
+  ungroup()
+
+fit1 <- lmer(flowering_time ~ nitrate_level  + (nitrate_level|ril_id) + (nitrate_level|batch),
+     data = model_data,
+     control = lmerControl(optimizer ="Nelder_Mead"))
+
+fit2 <- lm(flowering_time ~ nitrate_level*ril_id,
+     data = model_data)
+
+temp <- model_data %>% 
+  filter(str_detect(ril_id, "RIL")) %>% 
+  distinct(ril_id, nitrate_level) %>% 
+  mutate(batch = "a") %>% 
+  mutate(pred = predict(fit1, newdata = ., allow.new.levels = TRUE),
+         mean = predict(fit2, newdata = .)) %>% 
+  pivot_wider(names_from = nitrate_level, values_from = c(pred, mean)) %>% 
+  select(-batch) %>% 
+  column_to_rownames("ril_id") %>% as.matrix()
+
+scan1(geno_prob, temp) %>% 
+  plot(geno_map, lodcolumn = "mean_LN")
+scan1(geno_prob, temp) %>% 
+  plot(geno_map, lodcolumn = "mean_HN", add = TRUE, col = "brown")
+```
+
+
+Investigate whether the signal on Chr5 for flowering are two separate QTL:
+
+```{r}
+scan1(geno_prob, 
+      pheno = ril_cross$pheno[, c("flowering_time_mean_hn"), drop = FALSE], 
+      addcovar = pull_genoprobpos(geno_prob, "BD3660_1")[, 1, drop = FALSE], 
+      cores = 2) %>% 
+  plot(geno_map, ylim = c(0, 4))
+
+PEAK1 <- pull_genoprobpos(geno_prob, "BD3660_1")[, 1]
+PEAK2 <- pull_genoprobpos(geno_prob, "c5.loc83.5")[, 1]
+PHEN <- ril_cross$pheno[, c("flowering_time_mean_hn")]
+
+fit_both <- lm(PHEN ~ 1 + PEAK1[names(PHEN)] + PEAK2[names(PHEN)])
+fit_one <- lm(PHEN ~ 1 + PEAK1[names(PHEN)])
+anova(fit_both, fit_one)
+summary(fit_both)$adj.r.squared
+summary(fit_one)$adj.r.squared
+```
+
+
+```{r}
+flower_effects <- pull_genoprobpos(geno_prob, "BD3660_1") %>% 
+  as_tibble(rownames = "ril_id") %>% 
+  select(ril_id, peak1 = aa)
+
+flower_effects <- pull_genoprobpos(geno_prob, "c5.loc83.5") %>% 
+  as_tibble(rownames = "ril_id") %>% 
+  select(ril_id, peak2 = aa) %>% 
+  full_join(flower_effects, by = "ril_id")
+
+flower_effects <- flower_effects %>% 
+  full_join(pheno_summary, by = "ril_id")
+
+flower_effects %>% 
+  mutate(peak1 = case_when(peak1 < 0.25 ~ "Bd3-1", 
+                           peak1 > 0.75 ~ "BD21",
+                           TRUE ~ as.character(NA)),
+         peak2 = case_when(peak2 < 0.25 ~ "Bd3-1", 
+                           peak2 > 0.75 ~ "BD21",
+                           TRUE ~ as.character(NA))) %>% 
+  drop_na() %>% 
+  mutate(genotype = paste(peak1, peak2, sep = " / ")) %>% 
+  mutate(genotype = fct_reorder(genotype, flowering_time_mean_hn)) %>% 
+  ggplot(aes(genotype, flowering_time_mean_hn)) +
+  ggbeeswarm::geom_quasirandom(size = 2) +
+  geom_point(stat = "summary", fun.y = "mean", colour = "brown", size = 3) +
+  labs(x = "Genotype", y = "Flowering HN")
+```
+
+
+## Height
+
+```{r}
+pheno_scan_df %>% 
+  filter(str_detect(pheno, "height")) %>% 
+  ggplot(aes(pos, LOD)) +
+  geom_line() +
+  geom_hline(data = pheno_perm_df %>% filter(str_detect(pheno, "height") & alpha == "0.05"),
+             aes(yintercept = threshold), linetype = 2) +
+  geom_segment(data = pheno_peak_df %>% filter(str_detect(pheno, "height")),
+               aes(x = ci_lo, xend = ci_hi, y = -0.1, yend = -0.1), 
+               colour = "brown", size = 3) +
+  facet_grid(nitrate ~ chrom, scales = "free_x", space = "free_x") +
+  scale_x_continuous(breaks = seq(0, 500, 100)) +
+  labs(x = "Position (cM)", title = "Height") +
+  theme(panel.grid = element_blank())
+```
+
+```{r}
+pheno_summary %>% 
+  ggplot(aes(z68_shoots_mean_ln, senescence_height_mean_ln)) +
+  geom_point()
+```
+
+
+## PCA
+
+```{r}
+pca_data <- ril_phenotypes %>% 
+  filter(str_detect(ril_id, "RIL")) %>% 
+  mutate(senescence_height = ifelse(identifier == "B5-HN-079", NA, senescence_height),
+         z68_shoots = ifelse(identifier == "B6-HN-087", NA, z68_shoots)) %>% 
+  select(batch, nitrate_level, ril_id, 
+         z68_shoots, flowering_time, z68_greenness, senescence_height, 
+         seed_weight_g, lifespan, flowering_senescence_interval) %>% 
+  drop_na()
+
+pca_result <- pca_data %>% 
+  select(-batch, -nitrate_level, -ril_id) %>% 
+  prcomp(scale = TRUE)
+
+library(ggfortify)
+autoplot(pca_result, data = pca_data,
+         colour = "nitrate_level", loadings = TRUE, loadings.label = TRUE)
+```
+
+Let's see eigenvalues
+
+```{r}
+pca_result %>% 
+  broom::tidy("pcs") %>% 
+  ggplot(aes(PC, percent)) +
+  geom_col() + geom_line(aes(y = cumulative))
+```
+
+
+Let's see where the loadings are:
+
+```{r}
+pca_result %>% 
+  tidy(matrix = "variables") %>% 
+  filter(PC %in% 1:4) %>% 
+  ggplot(aes(value, column)) +
+  geom_point() +
+  geom_vline(xintercept = 0) +
+  facet_wrap(~ PC) +
+  theme(panel.grid = element_blank())
+```
+
+
+```{r}
+pca_summary <- pca_result$x %>% 
+  as_tibble() %>% 
+  select(PC1, PC2, PC3, PC4) %>% 
+  bind_cols(pca_data) %>% 
+  group_by(nitrate_level, ril_id) %>% 
+  summarise(pc1_mean = mean(PC1),
+            pc2_mean = mean(PC2),
+            pc3_mean = mean(PC3),
+            pc4_mean = mean(PC4)) %>% 
+  pivot_wider(names_from = "nitrate_level", values_from = matches("pc")) %>% 
+  mutate(pc1_mean_PLAS = pc1_mean_HN - pc1_mean_LN,
+         pc2_mean_PLAS = pc2_mean_HN - pc2_mean_LN,
+         pc3_mean_PLAS = pc3_mean_HN - pc3_mean_LN,
+         pc4_mean_PLAS = pc4_mean_HN - pc4_mean_LN) %>% 
+  column_to_rownames("ril_id") %>% 
+  as.matrix()
+
+pca_scan <- scan1(geno_prob, pca_summary, cores = 2) %>% 
+  tidy(map = geno_map) %>% 
+  mutate(nitrate = str_remove(pheno, ".*_"),
+         pheno = str_remove(pheno, "_.*"))
+```
+
+```{r}
+pca_scan %>% 
+  ggplot(aes(pos, LOD)) +
+  geom_line(aes(colour = pheno)) +
+  geom_hline(yintercept = 3, linetype = 2) +
+  facet_grid(nitrate ~ chrom, scales = "free_x", space = "free_x") +
+  theme(panel.grid = element_blank()) +
+  scale_colour_viridis_d()
+```
+

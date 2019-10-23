@@ -152,9 +152,14 @@ model_pred %>%
          mean = predict(model_fits$lm_fit, model_pred)) %>% 
   gather("model", "prediction", pred, mean) %>% 
   mutate(x = factor(interaction(model, nitrate_level), 
-                    levels = c("mean.LN", "pred.LN", "pred.HN", "mean.HN"))) %>% 
+                    levels = c("mean.LN", "pred.LN", "pred.HN", "mean.HN")),
+         parent = ifelse(str_detect(ril_id, "RIL"), "RIL", ril_id)) %>% 
+  mutate(parent = factor(parent, levels = c("RIL", "Bd21", "Bd3-1"))) %>% 
   ggplot(aes(x, prediction)) +
-  geom_line(aes(group = ril_id), alpha = 0.5)
+  geom_line(aes(group = ril_id, colour = parent, alpha = parent, size = parent)) +
+  scale_alpha_manual(values = c(0.3, 1, 1)) +
+  scale_size_manual(values = c(0.5, 1, 1)) +
+  scale_colour_manual(values = c("black", "steelblue", "firebrick"))
 ```
 
 It's a good idea to see what the plasticity distribution is in the population:
