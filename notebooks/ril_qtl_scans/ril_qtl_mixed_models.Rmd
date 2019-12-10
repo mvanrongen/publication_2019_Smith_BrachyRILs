@@ -1,0 +1,321 @@
+---
+title: "Mixed model QTL scans"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+```{r}
+# load libraries
+library(qtl2)
+library(qtl2helper) # remotes::install_github("tavareshugo/qtl2helper")
+library(tidyverse)
+library(patchwork)
+library(lme4)
+
+# change ggplot2 defaults
+theme_set(theme_bw() + theme(text = element_text(size = 12)))
+```
+
+
+## Summary
+
+Trying to run QTL scans using the non-summarised dataset, i.e. with all individual data. 
+
+
+## Read data
+
+```{r}
+# read data as a cross2 object
+ril_cross <- read_cross2("../../data/external/Cui2012_qtl2cross.zip")
+
+# insert pseudo-markers for evenly spaced scan
+geno_map <- insert_pseudomarkers(ril_cross$gmap, step = 0.5)
+
+# calculate genotype probabilities - assume 1% error rate
+geno_prob <- calc_genoprob(ril_cross, geno_map, error_prob = 0.01, cores = 3)
+
+# read trait data
+# read original data - column types are explicitly defined
+ril_phenotypes <- read_csv("../../data/processed/ril_phenotypes/ril_phenotypic_data.csv",
+                           col_types = cols(
+                             .default = col_double(),
+                             sheet = col_character(),
+                             identifier = col_character(),
+                             block = col_character(),
+                             shelf = col_character(),
+                             nitrate_level = col_factor(levels = c("LN", "HN")),
+                             id = col_character(),
+                             batch = col_factor(),
+                             position_grid_location = col_character(),
+                             ril_id = col_character(),
+                             sow_date = col_date(format = "%Y-%m-%d"),
+                             z68_date = col_date(format = "%Y-%m-%d"),
+                             senescence_date = col_date(format = "%Y-%m-%d")
+                           )) %>% 
+  # retain only lines with genotype
+  filter(ril_id %in% ind_ids(ril_cross)) %>% 
+  # retain only lines that have data in both nitrate treatments
+  group_by(ril_id) %>% 
+  filter(n_distinct(nitrate_level) == 2) %>% 
+  ungroup()
+```
+
+
+## Shoot branching
+
+- We're removing batches 1 & 2 from this analysis, later we can try including batch effects, I guess.
+- We've also concluded from previous models that there's no LN variation, so we fit the model only to HN data.
+
+```{r}
+# prepare data for the model
+model_data <- ril_phenotypes %>% 
+  # exclude batches 1 & 2
+  filter(!(batch %in% c("1", "2")) & nitrate_level == "HN") %>% 
+  # remove missing values
+  drop_na(ril_id, z68_shoots) %>% 
+  # create a generic name for the trait of focus
+  rename(trait = z68_shoots)
+
+# Variables for mixed model
+PHEN <- model_data$trait
+ID <- model_data$ril_id
+```
+
+First we fit the null model. From previous exploration we include a term for batch and do not include interaction.
+
+```{r}
+# Fit null model
+fit_null <- lme4::lmer(PHEN ~ (1|ID))
+summary(fit_null)
+```
+
+```{r}
+# get genotypes for all lines (including replicates)
+impute_genos <- viterbi(ril_cross, geno_map, error_prob = 0.01, cores = 3)
+
+all_gen <- impute_genos[model_data$ril_id, ]
+
+# fit genetic models to each marker
+lod_scores <- suppressMessages(
+  lapply(
+    all_gen, function(chr){ 
+      lods <- lapply(
+        dimnames(chr)[[2]], function(marker){
+          
+          # Get genotype matrix
+          GEN <- chr[, marker]
+          
+          # convert it to binary values (dummy variable)
+          GEN <- (GEN == 2)*1
+          
+          tryCatch(
+            {
+              # Fit each of the models
+              # Full model including interaction term
+              #fit_full <- lme4::lmer(PHEN ~ COV + GEN + GEN:COV + (1|ID) + (1|BATCH))
+              
+              # Genetic model including genetic but no interaction term
+              fit_gen <- lme4::lmer(PHEN ~ GEN + (1|ID))
+              
+              # Output a table with LOD scores for each
+              data.frame(
+                # LOD_full = (logLik(fit_full) - logLik(fit_null))/log(10),
+                # LOD_GxE = (logLik(fit_full) - logLik(fit_gen))/log(10),
+                LOD_G = (logLik(fit_gen) - logLik(fit_null))/log(10)
+              )
+              
+            }, error=function(err) data.frame(LOD_full = NA, LOD_GxE = NA, LOD_G = NA))    
+        }
+      )
+      
+      names(lods) <- dimnames(chr)[[2]]
+      
+      return(lods)
+    }
+  )
+)
+
+# Convert list to tibble
+lod_scores <- lod_scores %>% 
+  unlist(recursive = FALSE) %>% 
+  dplyr::bind_rows(.id = "marker") %>% 
+  mutate(marker = str_remove(marker, "^[1-5]\\."))
+
+# Get markers
+markers <- lapply(geno_map, 
+                  function(i){
+                    data.frame(marker = names(i), bp = as.numeric(i), stringsAsFactors = FALSE)
+                  }) %>% 
+  dplyr::bind_rows(.id = "chrom")
+
+# Join the marker and test tables
+lod_scores <- merge(markers, lod_scores, by = "marker", all = TRUE)
+```
+
+Visualise:
+
+```{r}
+lod_scores %>% 
+  ggplot(aes(bp, LOD_G)) +
+  geom_line() +
+  facet_grid(. ~ chrom, scales = "free_x", space = "free_x") +
+  scale_x_continuous(breaks = seq(0, 500, 100)) +
+  labs(x = "Position (cM)")
+```
+
+
+## Comparing QTL model strategies
+
+- mean trait values per RIL
+- median trait values per RIL
+- BLUP trait values per RIL
+- the mixed model above
+
+Let's get the traits summarised:
+
+```{r}
+ril_summary <- model_data %>% 
+  group_by(ril_id) %>% 
+  summarise(mean_trait = mean(trait),
+            median_trait = median(trait))
+
+# add the BLUP estimates
+ril_summary$blup_trait <- lmer(trait ~ (1|ril_id), data = model_data) %>% 
+  predict(newdata = ril_summary)
+```
+
+We can plot them together:
+
+```{r}
+ril_summary %>% 
+  mutate(ril_id = reorder(ril_id, mean_trait)) %>% 
+  gather("metric", "value", -ril_id) %>% 
+  ggplot(aes(ril_id, value, colour = metric)) +
+  geom_point() +
+  theme(axis.text.x = element_blank())
+```
+
+And run the scan with the the three different summary metrics:
+
+```{r}
+temp <- add_pheno(ril_cross, ril_summary)
+
+scan1(geno_prob, temp$pheno) %>% tidy(map = geno_map) %>% 
+  ggplot(aes(pos, LOD)) +
+  geom_line() +
+  facet_grid(pheno ~ chrom, scales = "free_x", space = "free_x")
+```
+
+
+
+## Flowering time
+
+- We're removing batches 1 & 2 from this analysis, later we can try including batch effects, I guess.
+- We're modelling HN and LN together, with no GxE component, since preliminary analysis suggests there isn't any.
+
+```{r}
+# prepare data for the model
+model_data <- ril_phenotypes %>% 
+  # exclude batches 1 & 2
+  filter(!(batch %in% c("1", "2"))) %>% 
+  # remove missing values
+  drop_na(ril_id, nitrate_level, flowering_time) %>% 
+  # create a generic name for the trait of focus
+  rename(trait = flowering_time)
+
+# Variables for mixed model
+PHEN <- model_data$trait
+COV <- factor(model_data$nitrate_level, levels = c("LN", "HN"))
+BATCH <- factor(model_data$batch)
+ID <- model_data$ril_id
+```
+
+First we fit the null model. From previous exploration we include a term for batch and do not include interaction.
+
+```{r}
+# Fit null model
+fit_null <- lme4::lmer(PHEN ~ COV + (1|ID) + (1|BATCH))
+summary(fit_null)
+```
+
+Now fitting the genetic model:
+
+```{r}
+# get genotypes for all lines (including replicates)
+impute_genos <- viterbi(ril_cross, geno_map, error_prob = 0.01, cores = 3)
+
+all_gen <- impute_genos[model_data$ril_id, ]
+
+# fit genetic models to each marker
+lod_scores <- suppressMessages(
+  lapply(
+    all_gen, function(chr){ 
+      lods <- lapply(
+        dimnames(chr)[[2]], function(marker){
+          
+          # Get genotype matrix
+          GEN <- chr[, marker]
+          
+          # convert it to binary values (dummy variable)
+          GEN <- (GEN == 2)*1
+          
+          tryCatch(
+            {
+              # Fit each of the models
+              # Full model including interaction term
+              #fit_full <- lme4::lmer(PHEN ~ COV + GEN + GEN:COV + (1|ID) + (1|BATCH))
+              
+              # Genetic model including genetic but no interaction term
+              fit_gen <- lme4::lmer(PHEN ~ COV + GEN + (1|ID) + (1|BATCH))
+              
+              # Output a table with LOD scores for each
+              data.frame(
+                # LOD_full = (logLik(fit_full) - logLik(fit_null))/log(10),
+                # LOD_GxE = (logLik(fit_full) - logLik(fit_gen))/log(10),
+                LOD_G = (logLik(fit_gen) - logLik(fit_null))/log(10)
+              )
+              
+            }, error=function(err) data.frame(LOD_full = NA, LOD_GxE = NA, LOD_G = NA))    
+        }
+      )
+      
+      names(lods) <- dimnames(chr)[[2]]
+      
+      return(lods)
+    }
+  )
+)
+
+# Convert list to tibble
+lod_scores <- lod_scores %>% 
+  unlist(recursive = FALSE) %>% 
+  dplyr::bind_rows(.id = "marker") %>% 
+  mutate(marker = str_remove(marker, "^[1-5]\\."))
+
+# Get markers
+markers <- lapply(geno_map, 
+                  function(i){
+                    data.frame(marker = names(i), bp = as.numeric(i), stringsAsFactors = FALSE)
+                  }) %>% 
+  dplyr::bind_rows(.id = "chrom")
+
+# Join the marker and test tables
+lod_scores <- merge(markers, lod_scores, by = "marker", all = TRUE)
+```
+
+
+Visualise:
+
+```{r}
+lod_scores %>% 
+  ggplot(aes(bp, LOD_G)) +
+  geom_line() +
+  facet_grid(. ~ chrom, scales = "free_x", space = "free_x") +
+  scale_x_continuous(breaks = seq(0, 500, 100)) +
+  labs(x = "Position (cM)")
+```
