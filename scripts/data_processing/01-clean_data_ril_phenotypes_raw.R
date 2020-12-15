@@ -63,7 +63,7 @@ ril_phenotypes <- ril_phenotypes %>%
 # remove extreme outlier for height 
 # (over 60cm, which is 10 SDs away from the population's mean!)
 ril_phenotypes <- ril_phenotypes %>% 
-  mutate(senescence_height = ifelse(scale(senescence_height) > 10, NA, senescence_height))
+  mutate(senescence_height = ifelse(identifier == "B6-HN-087", NA, senescence_height))
 
 # remove one line that only had data for one nitrate treatment (and one replicate)
 ril_phenotypes <- ril_phenotypes %>% 
@@ -79,6 +79,29 @@ ril_phenotypes <- ril_phenotypes %>%
 # remove lines that didn't flower nor have shoots measured
 ril_phenotypes <- ril_phenotypes %>%
   drop_na(sow_date, z68_shoots)
+
+
+# Run PCA -----------------------------------------------------------------
+# We use PC1 as a trait for doing QTL scans
+
+# run PCA
+pca_result <- ril_phenotypes %>% 
+  select(identifier, 
+         z68_shoots, flowering_time, z68_greenness, senescence_height, 
+         seed_weight_g, lifespan, flowering_senescence_interval) %>% 
+  drop_na() %>% 
+  column_to_rownames("identifier") %>% 
+  prcomp(scale = TRUE)
+  
+# extract PC1 scores
+pc_scores <- pca_result$x %>% 
+  as_tibble(rownames = "identifier") %>% 
+  select(identifier, PC1)
+
+# join with phenotype table
+ril_phenotypes <- ril_phenotypes %>% 
+  full_join(pc_scores, by = "identifier")
+
 
 
 # tests of data quality ----------------------------------------------------
@@ -106,7 +129,7 @@ if(nrow(ril_phenotypes) != length(unique(ril_phenotypes$identifier))){
 ril_summary <- ril_phenotypes %>% 
   group_by(nitrate_level, ril_id) %>% 
   summarise_at(vars(z68_shoots, z68_greenness, senescence_height, seed_weight_g, 
-                    lifespan, flowering_senescence_interval, flowering_time),
+                    lifespan, flowering_senescence_interval, flowering_time, PC1),
                .funs = list(mean = ~ mean(., na.rm = TRUE),
                             median = ~ median(., na.rm = TRUE),
                             n = ~ sum(!is.na(.)),
@@ -119,12 +142,13 @@ ril_summary <- ril_phenotypes %>%
 
 # all individual data
 write_csv(ril_phenotypes, 
-          path = "./data/processed/ril_phenotypes/ril_phenotypic_data_individual.csv", 
+          file = "./data/processed/ril_phenotypes/ril_phenotypic_data_individual.csv", 
           na = "")
 
 # summarised data
 write_csv(ril_summary,
-          path = "./data/processed/ril_phenotypes/ril_phenotypic_data_averaged.csv")
+          file = "./data/processed/ril_phenotypes/ril_phenotypic_data_averaged.csv",
+          na = "")
 
 
 

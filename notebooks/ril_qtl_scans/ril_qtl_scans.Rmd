@@ -8,7 +8,7 @@ output:
     toc_float: true
     toc_depth: 4
 editor_options: 
-  chunk_output_type: inline
+  chunk_output_type: console
 ---
 
 ```{r setup, include=FALSE}
@@ -22,6 +22,8 @@ library(qtl2)
 library(tidyverse)
 library(patchwork)
 library(qtl2helper) # https://github.com/tavareshugo/qtl2helper
+library(broom)
+library(ggrepel)
 
 # change ggplot2 defaults
 theme_set(theme_bw() + theme(text = element_text(size = 12)))
@@ -69,7 +71,7 @@ We read the clean (processed) data and summarise per genotype/nitrate treatment
 
 ```{r}
 # read individual data
-ril_phenotypes <- read_csv("../../data/processed/ril_phenotypes/ril_phenotypic_data_individual.csv",
+ril_phenotypes <- read_csv("data/processed/ril_phenotypes/ril_phenotypic_data_individual.csv",
                            col_types = cols(
                              .default = col_double(),
                              sheet = col_character(),
@@ -85,6 +87,7 @@ ril_phenotypes <- read_csv("../../data/processed/ril_phenotypes/ril_phenotypic_d
                              z68_date = col_date(format = "%Y-%m-%d"),
                              senescence_date = col_date(format = "%Y-%m-%d")
                            ))
+
 # 
 # # Simple summary of data
 # pheno <- ril_phenotypes %>% 
@@ -672,11 +675,43 @@ pheno_summary %>%
 
 ## PCA
 
+Pairwise correlation between traits:
+
+```{r}
+# code is quite involved basically to get upper and lower diagonal
+# with correlations on HN and LN
+ril_phenotypes %>% 
+  select(nitrate_level, 
+         z68_shoots, flowering_time, z68_greenness, senescence_height, 
+         seed_weight_g, lifespan, flowering_senescence_interval) %>% 
+  drop_na() %>% 
+  group_nest(nitrate_level) %>% 
+  mutate(cor = map(data, ~ shave(correlate(.)))) %>% 
+  select(-data) %>% 
+  unnest(cor) %>% 
+  pivot_longer(-c(nitrate_level, term)) %>% 
+  mutate(x = ifelse(nitrate_level == "LN", term, name),
+         y = ifelse(nitrate_level == "LN", name, term)) %>% 
+  mutate(x = factor(x, levels = unique(term)),
+         y = factor(y, levels = rev(unique(term)))) %>% 
+  ggplot(aes(x, y)) +
+  geom_point(aes(shape = nitrate_level, 
+                 size = abs(value), 
+                 colour = value)) +
+  geom_text(aes(label = round(value, 1)), 
+            nudge_x = 0.25, nudge_y = 0.2) +
+  scale_colour_gradient2(low = "steelblue", mid = "white", high = "brown",
+                         limits = c(-1, 1)) +
+  guides(size = "none") +
+  labs(x = "", y = "", colour = "Pearson's r", shape = "Nitrate") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  coord_equal()
+```
+
+
 ```{r}
 pca_data <- ril_phenotypes %>% 
-  filter(str_detect(ril_id, "RIL")) %>% 
-  mutate(senescence_height = ifelse(identifier == "B5-HN-079", NA, senescence_height),
-         z68_shoots = ifelse(identifier == "B6-HN-087", NA, z68_shoots)) %>% 
   select(batch, nitrate_level, ril_id, 
          z68_shoots, flowering_time, z68_greenness, senescence_height, 
          seed_weight_g, lifespan, flowering_senescence_interval) %>% 
@@ -694,19 +729,72 @@ autoplot(pca_result, data = pca_data,
 Let's see eigenvalues
 
 ```{r}
-pca_result %>% 
-  broom::tidy("pcs") %>% 
-  ggplot(aes(PC, percent)) +
-  geom_col() + geom_line(aes(y = cumulative))
+eigenvalues <- pca_result %>% 
+  tidy(matrix = "eigenvalues") %>% 
+  mutate(percent = percent*100, cumulative = cumulative*100)
+
+# screeplot
+eigenvalues %>% 
+  ggplot(aes(factor(PC), percent)) +
+  geom_col(fill = "grey") +
+  geom_text(aes(label = round(percent, 1)), vjust = -0.2) +
+  theme_classic()
 ```
 
+PC plot:
+
+```{r}
+loadings <- pca_result %>% 
+  tidy(matrix = "loadings")
+
+# PC plot
+p1 <- pca_result %>% 
+  augment(data = pca_data) %>% 
+  ggplot(aes(.fittedPC1, .fittedPC2)) +
+  geom_point(aes(colour = nitrate_level)) +
+  scale_colour_manual(values = c("grey48", "black")) +
+  labs(x = paste0("PC1 (", round(eigenvalues$percent[1], 1), "%)"), 
+       y = paste0("PC2 (", round(eigenvalues$percent[2], 1), "%)"), 
+       colour = "Nitrate") +
+  theme_classic() +
+  coord_fixed(ratio = 0.3)
+
+# loadings
+p2 <- loadings %>% 
+  filter(PC %in% 1:2) %>% 
+  pivot_wider(names_from = "PC", values_from = "value", names_prefix = "PC") %>% 
+  ggplot() +
+  geom_segment(aes(x = 0, y = 0, xend = PC1, yend = PC2), 
+               arrow = arrow(length = unit(0.1, "in")),
+               colour = "brown") +
+  geom_text_repel(aes(x = PC1, y = PC2, label = column),
+                  size = 3, vjust = "inward") +
+  theme_classic() +
+  labs(x = "PC1", y = "PC2") +
+  coord_fixed(ratio = 0.3)
+
+p3 <- loadings %>% 
+  filter(PC %in% 1) %>% 
+  mutate(column = fct_reorder(column, value)) %>% 
+  ggplot(aes(value, column)) +
+  geom_point() +
+  geom_vline(xintercept = 0) +
+  theme(panel.grid = element_blank()) +
+  labs(x = "PC1 Loading", y = "")
+
+(p1 / p2) + 
+  plot_annotation(tag_levels = "A")
+
+(p1 | p3) + 
+  plot_layout(widths = c(2, 1)) + 
+  plot_annotation(tag_levels = "A")
+```
 
 Let's see where the loadings are:
 
 ```{r}
-pca_result %>% 
-  tidy(matrix = "variables") %>% 
-  filter(PC %in% 1:4) %>% 
+loadings %>% 
+  filter(PC %in% 1:2) %>% 
   ggplot(aes(value, column)) +
   geom_point() +
   geom_vline(xintercept = 0) +
@@ -714,38 +802,111 @@ pca_result %>%
   theme(panel.grid = element_blank())
 ```
 
+Looking at PC1 scores in the context of plasticity:
 
 ```{r}
-pca_summary <- pca_result$x %>% 
-  as_tibble() %>% 
-  select(PC1, PC2, PC3, PC4) %>% 
-  bind_cols(pca_data) %>% 
+pc_summary <- pca_result %>% 
+  augment(data = pca_data) %>% 
+  group_by(ril_id, nitrate_level) %>% 
+  summarise(PC1 = mean(.fittedPC1))
+
+p1 <- pc_summary %>% 
+  mutate(parents_pc1 = ifelse(str_detect(ril_id, "RIL"), 
+                          NA, PC1),
+         parents_label = ifelse(str_detect(ril_id, "RIL"),
+                                NA, ril_id)) %>% 
+  ggplot(aes(nitrate_level, PC1)) +
+  geom_line(aes(group = ril_id), alpha = 0.5, colour = "grey") +
+  geom_line(aes(y = parents_pc1, colour = parents_label, group = ril_id),
+            size = 1) +
+  labs(x = "Nitrate", 
+       y = paste0("PC1 (", round(eigenvalues$percent[1], 1), "%)")) +
+  scale_colour_manual(values = c("Bd21" = "#0072B2", "Bd3-1" = "#CC79A7")) +
+  theme_classic() +
+  theme(legend.position = "none")
+
+p2 <- pc_summary %>% 
+  pivot_wider(names_from = nitrate_level, values_from = PC1) %>% 
+  mutate(plast = HN - LN) %>% 
+  mutate(parents_plast = ifelse(str_detect(ril_id, "RIL"), 
+                              NA, plast),
+         parents_label = ifelse(str_detect(ril_id, "RIL"),
+                                NA, ril_id)) %>% 
+  ggplot(aes(plast)) +
+  geom_density() +
+  geom_point(aes(x = parents_plast, y = 0, colour = parents_label),
+             size = 3) +
+  theme_classic() +
+  scale_colour_manual(values = c("Bd21" = "#0072B2", "Bd3-1" = "#CC79A7")) +
+  labs(x = "Plasticity")
+
+pc_summary %>% 
+  pivot_wider(names_from = nitrate_level, values_from = PC1) %>% 
+  mutate(plast = HN - LN) %>% 
+  ggplot(aes(plast)) +
+  geom_point(aes(y = HN, colour = "HN")) +
+  geom_point(aes(y = LN, colour = "LN")) +
+  scale_colour_manual(values = c("LN" = "grey48", "HN" = "black")) +
+  labs(x = "PC1 Plasticity", y = "PC1")
+
+(p1 | p2) + plot_annotation(tag_levels = "A")
+```
+
+### Run scan using PCs as trait
+
+```{r}
+# prepare the trait
+pca_trait <- pca_result %>% 
+  augment(pca_data) %>% 
   group_by(nitrate_level, ril_id) %>% 
-  summarise(pc1_mean = mean(PC1),
-            pc2_mean = mean(PC2),
-            pc3_mean = mean(PC3),
-            pc4_mean = mean(PC4)) %>% 
-  pivot_wider(names_from = "nitrate_level", values_from = matches("pc")) %>% 
-  mutate(pc1_mean_PLAS = pc1_mean_HN - pc1_mean_LN,
-         pc2_mean_PLAS = pc2_mean_HN - pc2_mean_LN,
-         pc3_mean_PLAS = pc3_mean_HN - pc3_mean_LN,
-         pc4_mean_PLAS = pc4_mean_HN - pc4_mean_LN) %>% 
+  summarise(across(matches(".fittedPC[1-3]"), 
+                   mean)) %>% 
+  ungroup() %>% 
+  rename_with(~ str_remove(., ".fitted"), .cols = matches(".fitted")) %>% 
+  pivot_wider(names_from = "nitrate_level", values_from = matches("PC")) %>% 
+  mutate(PC1_plast = PC1_HN - PC1_LN,
+         PC2_plast = PC2_HN - PC2_LN,
+         PC3_plast = PC3_HN - PC3_LN) %>% 
   column_to_rownames("ril_id") %>% 
   as.matrix()
 
-pca_scan <- scan1(geno_prob, pca_summary, cores = 2) %>% 
-  tidy(map = geno_map) %>% 
-  mutate(nitrate = str_remove(pheno, ".*_"),
-         pheno = str_remove(pheno, "_.*"))
-```
+# Prepare QTL object 
+ril_cross <- read_cross2("data/external/Cui2012_qtl2cross.zip")
+ril_cross <- add_pheno(ril_cross, pca_trait)
+geno_map <- insert_pseudomarkers(ril_cross$gmap, step = 0.5)
+geno_prob <- calc_genoprob(ril_cross, geno_map, error_prob = 0.01, cores = 3)
 
-```{r}
+# run scan
+pca_scan <- scan1(geno_prob, pca_trait, cores = 2) %>% 
+  tidy(map = geno_map) %>% 
+  separate(pheno, c("trait", "nitrate"), sep = "_", remove = FALSE)
+
+# plot for PC1 only
 pca_scan %>% 
+  filter(trait == "PC1") %>% 
   ggplot(aes(pos, LOD)) +
-  geom_line(aes(colour = pheno)) +
+  geom_line() +
   geom_hline(yintercept = 3, linetype = 2) +
   facet_grid(nitrate ~ chrom, scales = "free_x", space = "free_x") +
-  theme(panel.grid = element_blank()) +
-  scale_colour_viridis_d()
+  theme(panel.grid = element_blank())
 ```
+
+figure
+
+```{r}
+# plot for PC1 only
+pca_plot <- pca_scan %>% 
+  filter(trait == "PC1") %>% 
+  ggplot(aes(pos, LOD)) +
+  geom_line() +
+  geom_hline(yintercept = 3, linetype = 2) +
+  facet_grid(nitrate ~ chrom, scales = "free_x", space = "free_x") +
+  theme(panel.grid = element_blank())
+
+((p1 | p3) + plot_layout(widths = c(2, 1))) / 
+  pca_plot +
+  plot_layout(heights = c(1, 2)) + 
+  plot_annotation(tag_levels = "A")
+```
+
 
