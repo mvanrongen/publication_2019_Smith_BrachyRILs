@@ -5,4 +5,9 @@
 data
 figures
 *.html
+*.gddoc
+*.gdlink
+*.pdf
+sprint_photos
+temp
 FILES FOR HUGO & MARTIN
